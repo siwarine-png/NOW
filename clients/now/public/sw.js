@@ -6,13 +6,18 @@
 self.addEventListener('install', function (e) { self.skipWaiting(); });
 self.addEventListener('activate', function (e) { e.waitUntil(self.clients.claim()); });
 
-// A no-op passthrough, but its presence matters: Chrome's installability
-// check (what actually enables "Add to Home Screen" / its own Android
-// notification-settings entry, not just a browser-tab permission) has
-// historically required the service worker to handle `fetch`, not just
-// `push` -- a push-only worker like this one previously had can be
-// registered and active while still not counting as installable.
+// Its mere presence matters more than what it does: Chrome's installability
+// check has historically required the service worker to handle `fetch`, not
+// just `push`. But re-fetching e.request naively is a well-known trap for
+// any request with a body (POST/PATCH/PUT) -- a Request's body stream can
+// only be read once, so blindly calling respondWith(fetch(e.request)) for
+// those can silently send an EMPTY body to the real destination. That's
+// exactly what broke PATCH /users/:id here: the body vanished in transit,
+// the server saw an empty update, and PostgREST correctly (but confusingly)
+// reported "0 rows" for what looked like a healthy request. Only intercept
+// GET, and let everything else hit the network untouched.
 self.addEventListener('fetch', function (e) {
+  if (e.request.method !== 'GET') return;
   e.respondWith(fetch(e.request));
 });
 

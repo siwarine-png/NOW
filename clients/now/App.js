@@ -7,7 +7,7 @@
  * No navigation library needed at this scale — simple state machine.
  */
 import React, { useState, useEffect } from 'react';
-import { View, Text, ScrollView, StyleSheet } from 'react-native';
+import { View, Text, ScrollView, StyleSheet, Platform } from 'react-native';
 import { StatusBar } from 'expo-status-bar';
 import * as Notifications from 'expo-notifications';
 import { isOnboarded, getUser } from './src/store/session';
@@ -57,7 +57,10 @@ function App() {
         const u = await getUser();
         setUser(u);
         setScreen('today');
-        registerPushToken(u?.id);
+        // Web uses its own VAPID-based flow (src/webPush.js, triggered from
+        // Settings) -- expo-notifications' token system doesn't apply here
+        // and just logs a confusing "must provide vapidPublicKey" error.
+        if (Platform.OS !== 'web') registerPushToken(u?.id);
       } else {
         setScreen('onboarding');
       }
@@ -69,7 +72,7 @@ function App() {
   if (screen === 'onboarding') return (
     <>
       <StatusBar style="light" />
-      <OnboardingScreen onComplete={u => { setUser(u); setScreen('today'); registerPushToken(u?.id); }} />
+      <OnboardingScreen onComplete={u => { setUser(u); setScreen('today'); if (Platform.OS !== 'web') registerPushToken(u?.id); }} />
     </>
   );
 
