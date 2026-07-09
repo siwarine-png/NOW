@@ -97,7 +97,18 @@ router.patch('/:id', async (req, res) => {
     .select()
     .single();
 
-  if (error || !data) return res.status(404).json({ error: 'Not found' });
+  // A real Postgres/PostgREST error (bad payload, RLS, etc.) was previously
+  // collapsed into the same generic "Not found" as a genuinely missing row,
+  // which is actively misleading -- "Not found" told a user their account
+  // didn't exist when the real problem might be something else entirely.
+  // PGRST116 is PostgREST's actual "0 (or >1) rows matched .single()" code --
+  // only that case is a real 404; anything else gets its real message back.
+  if (error) {
+    console.error('[users] PATCH failed', { id: req.params.id, updates, error: error.message, code: error.code });
+    if (error.code === 'PGRST116') return res.status(404).json({ error: 'Not found' });
+    return res.status(500).json({ error: error.message, code: error.code });
+  }
+  if (!data) return res.status(404).json({ error: 'Not found' });
   res.json(data);
 });
 
