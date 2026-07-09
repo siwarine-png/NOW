@@ -129,7 +129,16 @@ export default function SettingsScreen({ onBack, onDeleteAccount }) {
             await clearAll();
             onDeleteAccount?.();
           } catch (e) {
-            showAlert("Couldn't delete", e.message || 'Check your connection and try again.');
+            // A stale local session (e.g. pointing at a user from before a
+            // database migration) 404s here -- there's nothing server-side
+            // to delete, but the user is still stuck with a broken local
+            // session unless we clear it anyway instead of just erroring.
+            if (String(e.message || '').toLowerCase().includes('not found')) {
+              await clearAll();
+              onDeleteAccount?.();
+            } else {
+              showAlert("Couldn't delete", e.message || 'Check your connection and try again.');
+            }
           } finally {
             setDeleting(false);
           }
