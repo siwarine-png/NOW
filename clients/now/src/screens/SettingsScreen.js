@@ -7,12 +7,13 @@
  * blindly.
  */
 import React, { useState, useEffect, useCallback } from 'react';
-import { View, Text, Switch, TouchableOpacity, TextInput, StyleSheet, ActivityIndicator, ScrollView } from 'react-native';
+import { View, Text, Switch, TouchableOpacity, TextInput, StyleSheet, ActivityIndicator, ScrollView, Platform } from 'react-native';
 import * as Notifications from 'expo-notifications';
 import { getUser, clearAll } from '../store/session';
 import { deleteAccount, getBehaviorStatus, establishBehavior, overrideNudgeAnchor } from '../api/engine';
 import { registerPushToken } from '../push';
 import { showAlert } from '../utils/alert';
+import { webPushSupported, getWebPushSubscription, subscribeToWebPush, unsubscribeFromWebPush } from '../webPush';
 
 function daysSince(dateStr) {
   if (!dateStr) return 0;
@@ -43,7 +44,11 @@ export default function SettingsScreen({ onBack, onDeleteAccount }) {
 
   useEffect(() => {
     getUser().then(u => { setUser(u); loadNudgeStatus(u?.id); });
-    Notifications.getPermissionsAsync().then(p => setNotifEnabled(p.granted));
+    if (Platform.OS === 'web') {
+      getWebPushSubscription().then(sub => setNotifEnabled(!!sub)).catch(() => {});
+    } else {
+      Notifications.getPermissionsAsync().then(p => setNotifEnabled(p.granted));
+    }
   }, [loadNudgeStatus]);
 
   async function handleEstablishMedication() {
@@ -72,7 +77,30 @@ export default function SettingsScreen({ onBack, onDeleteAccount }) {
     }
   }
 
+  // Real Web Push (installable + shows up in the browser/OS's own
+  // per-site notification settings), same mechanism the older BECOME
+  // prototype proved out -- separate path from native's Expo push token,
+  // since web has no such token system.
+  async function toggleWebNotifications(val) {
+    if (!user?.id) return;
+    if (val) {
+      try {
+        await subscribeToWebPush(user.id);
+        setNotifEnabled(true);
+      } catch (e) {
+        showAlert("Couldn't enable notifications", e.message);
+      }
+    } else {
+      try {
+        await unsubscribeFromWebPush(user.id);
+      } catch (e) { /* best effort -- still reflect the toggle locally */ }
+      setNotifEnabled(false);
+    }
+  }
+
   async function toggleNotifications(val) {
+    if (Platform.OS === 'web') return toggleWebNotifications(val);
+
     if (val) {
       const { granted } = await Notifications.requestPermissionsAsync();
       setNotifEnabled(granted);
@@ -121,10 +149,16 @@ export default function SettingsScreen({ onBack, onDeleteAccount }) {
 
       <ScrollView contentContainerStyle={s.scroll}>
         <Section label="Notifications">
-          <Row label="Intervention nudges">
-            <Switch value={notifEnabled} onValueChange={toggleNotifications} trackColor={{ true: '#6366f1' }} />
-          </Row>
-          <Text style={s.note}>Quiet hours are set during onboarding. No streak guilt, no shaming messages.</Text>
+          {Platform.OS === 'web' && !webPushSupported() ? (
+            <Text style={s.note}>Push isn't available in this browser yet.</Text>
+          ) : (
+            <>
+              <Row label="Intervention nudges">
+                <Switch value={notifEnabled} onValueChange={toggleNotifications} trackColor={{ true: '#6366f1' }} />
+              </Row>
+              <Text style={s.note}>Quiet hours are set during onboarding. No streak guilt, no shaming messages.</Text>
+            </>
+          )}
         </Section>
 
         <Section label="Daily nudge">

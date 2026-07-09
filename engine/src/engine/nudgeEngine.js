@@ -231,12 +231,12 @@ async function fireDueTests(sb) {
   if (!tests?.length) return;
 
   const userIds = [...new Set(tests.map(t => t.user_id))];
-  const { data: users } = await sb.from('users').select('id, push_token, timezone').in('id', userIds);
+  const { data: users } = await sb.from('users').select('id, push_token, web_push_subscription, timezone').in('id', userIds);
   const usersById = Object.fromEntries((users || []).map(u => [u.id, u]));
 
   for (const test of tests) {
     const user = usersById[test.user_id];
-    if (!user?.push_token) continue;
+    if (!user?.push_token && !user?.web_push_subscription) continue;
 
     const nowMin = nowMinutesInTz(user.timezone);
     const now = new Date();
@@ -278,7 +278,7 @@ async function fireDueTests(sb) {
       } catch (e) { /* fall back to the anchor-framed message above */ }
     }
 
-    await sendCheckinPush(test.user_id, user.push_token, test.behavior === 'medication' ? 'Medication time' : 'Check-in time', body);
+    await sendCheckinPush(test.user_id, user, test.behavior === 'medication' ? 'Medication time' : 'Check-in time', body);
     await sb.from('nudge_events').insert({
       test_id: test.id, user_id: test.user_id, behavior: test.behavior,
       anchor, tone_variant: tone, window_minutes: windowMin,

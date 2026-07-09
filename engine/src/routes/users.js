@@ -85,7 +85,7 @@ router.post('/', async (req, res) => {
 
 // PATCH /users/:id — update timezone / quiet hours
 router.patch('/:id', async (req, res) => {
-  const allowed = ['timezone', 'wake_time', 'sleep_time', 'quiet_start', 'quiet_end', 'checkin_time', 'push_token'];
+  const allowed = ['timezone', 'wake_time', 'sleep_time', 'quiet_start', 'quiet_end', 'checkin_time', 'push_token', 'web_push_subscription'];
   const updates = {};
   allowed.forEach(k => { if (req.body[k] !== undefined) updates[k] = req.body[k]; });
 

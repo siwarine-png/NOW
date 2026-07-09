@@ -4,6 +4,7 @@
  * evaluates rules, and fires webhooks to registered app webhook_urls.
  */
 const cron = require('node-cron');
+const webpush = require('web-push');
 const sb = require('../db/client');
 const { loadStats } = require('./stats');
 const { scoreRisk } = require('./risk');
@@ -83,8 +84,8 @@ function isQuietHours(user, nowMin) {
 async function runPushReminderTick() {
   const { data: users } = await sb
     .from('users')
-    .select('id, push_token, checkin_time, timezone, last_push_sent_at')
-    .not('push_token', 'is', null);
+    .select('id, push_token, web_push_subscription, checkin_time, timezone, last_push_sent_at')
+    .or('push_token.not.is.null,web_push_subscription.not.is.null');
   if (!users?.length) return;
 
   // A user mid app-open anchor test is already being fired at by
@@ -114,21 +115,58 @@ async function runPushReminderTick() {
       console.error('[push] domain lookup failed for user', user.id, e.message);
     }
 
-    await sendCheckinPush(user.id, user.push_token, 'Check-in time', body);
+    await sendCheckinPush(user.id, user, 'Check-in time', body);
   }
 }
 
-// Shared by the scheduled tick and the on-demand admin test-push route, so
-// both paths record delivery result (and dead-token cleanup) identically.
-async function sendCheckinPush(userId, pushToken, title, body) {
-  const result = await sendExpoPush(pushToken, title, body);
+// Shared by the scheduled tick, nudgeEngine's fireDueTests, and the on-demand
+// admin test-push route, so all three paths record delivery result (and
+// dead-token/dead-subscription cleanup) identically. `target` is a user row
+// with push_token and/or web_push_subscription -- web is tried first since a
+// user who set up web push is using the web client, not the native app.
+async function sendCheckinPush(userId, target, title, body) {
+  const result = target.web_push_subscription
+    ? await sendWebPush(target.web_push_subscription, title, body)
+    : await sendExpoPush(target.push_token, title, body);
+
   const update = { last_push_sent_at: new Date().toISOString(), last_push_error: result.ok ? null : result.error };
-  // A dead token will fail forever silently otherwise -- clearing it makes
-  // "reminder stopped working" visible as push_token going null instead of
-  // an invisible no-op every day.
-  if (result.deviceNotRegistered) update.push_token = null;
+  // A dead token/subscription will fail forever silently otherwise --
+  // clearing it makes "reminder stopped working" visible as the field going
+  // null instead of an invisible no-op every day.
+  if (result.deviceNotRegistered) {
+    if (target.web_push_subscription) update.web_push_subscription = null;
+    else update.push_token = null;
+  }
   await sb.from('users').update(update).eq('id', userId);
   return result;
+}
+
+// Same delivery mechanism the older BECOME prototype already proved out
+// (VAPID + web-push), rather than the less-certain path of trying to make
+// Expo's own push token system work for browsers. Boot-time key setup can
+// throw on a malformed key; capture it instead of crashing tick startup.
+let vapidError = null;
+if (process.env.VAPID_PUBLIC_KEY && process.env.VAPID_PRIVATE_KEY) {
+  try {
+    webpush.setVapidDetails(
+      process.env.VAPID_SUBJECT || 'mailto:noreply@example.com',
+      process.env.VAPID_PUBLIC_KEY, process.env.VAPID_PRIVATE_KEY,
+    );
+  } catch (e) { vapidError = e.message; }
+}
+
+async function sendWebPush(subscription, title, body) {
+  if (!process.env.VAPID_PUBLIC_KEY || !process.env.VAPID_PRIVATE_KEY) {
+    return { ok: false, error: 'VAPID keys not configured on the server' };
+  }
+  if (vapidError) return { ok: false, error: `VAPID setup failed: ${vapidError}` };
+  try {
+    await webpush.sendNotification(subscription, JSON.stringify({ title, body }));
+    return { ok: true };
+  } catch (e) {
+    console.error('[push] web push send failed', { statusCode: e.statusCode, error: e.message });
+    return { ok: false, error: e.message, deviceNotRegistered: e.statusCode === 404 || e.statusCode === 410 };
+  }
 }
 
 function dateKeyInTz(date, timezone) {

@@ -72,11 +72,11 @@ router.get('/users', async (req, res) => {
 // (success or the exact rejection reason) immediately.
 router.post('/users/:id/test-push', async (req, res) => {
   const { data: user, error } = await sb
-    .from('users').select('id, push_token').eq('id', req.params.id).single();
+    .from('users').select('id, push_token, web_push_subscription').eq('id', req.params.id).single();
   if (error || !user) return res.status(404).json({ error: 'user not found' });
-  if (!user.push_token) return res.status(400).json({ error: 'user has no push_token registered' });
+  if (!user.push_token && !user.web_push_subscription) return res.status(400).json({ error: 'user has no push_token or web_push_subscription registered' });
 
-  const result = await sendCheckinPush(user.id, user.push_token, 'Test push', 'This is a manual test push from the admin dashboard.');
+  const result = await sendCheckinPush(user.id, user, 'Test push', 'This is a manual test push from the admin dashboard.');
   res.json(result);
 });
 
