@@ -27,7 +27,10 @@ async function auth(req, res, next) {
     .eq('api_key_hash', hash)
     .single();
 
-  if (error || !data) return res.status(401).json({ error: 'Invalid API key' });
+  if (error || !data) {
+    if (error) console.error('[auth] apps lookup failed', { code: error.code, message: error.message, details: error.details, hint: error.hint });
+    return res.status(401).json({ error: 'Invalid API key' });
+  }
 
   cache.set(hash, { app: data, expiresAt: Date.now() + 60_000 });
   req.app_id = data.id;

@@ -89,6 +89,8 @@ router.patch('/:id', async (req, res) => {
   const updates = {};
   allowed.forEach(k => { if (req.body[k] !== undefined) updates[k] = req.body[k]; });
 
+  console.error('[users] PATCH attempt', { params_id: req.params.id, app_id: req.app_id, raw_body: req.body, updates });
+
   const { data, error } = await sb
     .from('users')
     .update(updates)
@@ -96,6 +98,8 @@ router.patch('/:id', async (req, res) => {
     .eq('app_id', req.app_id)
     .select()
     .single();
+
+  console.error('[users] PATCH result', { data, error });
 
   // A real Postgres/PostgREST error (bad payload, RLS, etc.) was previously
   // collapsed into the same generic "Not found" as a genuinely missing row,
