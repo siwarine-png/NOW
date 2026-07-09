@@ -17,6 +17,7 @@ import TodayScreen from './src/screens/TodayScreen';
 import NowScreen from './src/screens/NowScreen';
 import SettingsScreen from './src/screens/SettingsScreen';
 import AddPainPointScreen from './src/screens/AddPainPointScreen';
+import IdentityScreen from './src/screens/IdentityScreen';
 import BottomNav from './src/components/BottomNav';
 
 Notifications.setNotificationHandler({
@@ -88,6 +89,8 @@ function App() {
     content = <NowScreen user={user} onSettings={() => setScreen('settings')} onBack={() => setScreen('today')} />;
   } else if (screen === 'stuck') {
     content = <AddPainPointScreen user={user} onCreated={() => setScreen('today')} />;
+  } else if (screen === 'identity') {
+    content = <IdentityScreen onBack={() => setScreen('today')} />;
   } else {
     content = <TodayScreen user={user} onOpenNow={() => setScreen('now-focus')} onSettings={() => setScreen('settings')} />;
   }
@@ -98,9 +101,10 @@ function App() {
       <View style={s.appRoot}>
         <View style={s.content}>{content}</View>
         <BottomNav
-          active={screen === 'stuck' ? 'stuck' : NOW_TAB_SCREENS.includes(screen) ? 'now' : null}
+          active={screen === 'stuck' ? 'stuck' : screen === 'identity' ? 'identity' : NOW_TAB_SCREENS.includes(screen) ? 'now' : null}
           onStuck={() => setScreen('stuck')}
           onNow={() => setScreen('today')}
+          onIdentity={() => setScreen('identity')}
         />
       </View>
     </>
