@@ -1,12 +1,13 @@
 /**
  * Persistent bottom tab bar, visible on every post-onboarding screen.
- * 2 tabs only: "I'm Stuck" (add a new pain point, any time -- not just once
- * at onboarding) and "Now" (the day's shape -- TodayScreen).
+ * 3 tabs: "I'm Stuck" (add a new pain point, any time -- not just once at
+ * onboarding), "Now" (the day's shape -- TodayScreen), and "Identity" (the
+ * Adaptive Allocation Engine's spectrum reflection -- IdentityScreen).
  */
 import React from 'react';
 import { View, Text, TouchableOpacity, StyleSheet } from 'react-native';
 
-export default function BottomNav({ active, onStuck, onNow }) {
+export default function BottomNav({ active, onStuck, onNow, onIdentity }) {
   return (
     <View style={s.bar}>
       <TouchableOpacity style={s.tab} onPress={onStuck}>
@@ -16,6 +17,10 @@ export default function BottomNav({ active, onStuck, onNow }) {
       <TouchableOpacity style={s.tab} onPress={onNow}>
         <Text style={s.icon}>🎯</Text>
         <Text style={[s.label, active === 'now' && s.labelActive]}>Now</Text>
+      </TouchableOpacity>
+      <TouchableOpacity style={s.tab} onPress={onIdentity}>
+        <Text style={s.icon}>🪞</Text>
+        <Text style={[s.label, active === 'identity' && s.labelActive]}>Identity</Text>
       </TouchableOpacity>
     </View>
   );
