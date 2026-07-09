@@ -10,14 +10,14 @@
 import React, { useState, useEffect } from 'react';
 import {
   View, Text, TextInput, TouchableOpacity,
-  StyleSheet, Alert, ActivityIndicator, ScrollView,
+  StyleSheet, ActivityIndicator, ScrollView, Platform,
 } from 'react-native';
-import { Platform } from 'react-native';
 import * as WebBrowser from 'expo-web-browser';
 import * as Google from 'expo-auth-session/providers/google';
 import { registerUser } from '../api/engine';
 import { setUser, markOnboarded } from '../store/session';
 import { flushQueue } from '../store/queue';
+import { showAlert } from '../utils/alert';
 
 WebBrowser.maybeCompleteAuthSession();
 
@@ -102,7 +102,7 @@ export default function OnboardingScreen({ onComplete }) {
     })
       .then(r => r.json())
       .then(profile => { setGoogleProfile(profile); setStep(STEP_ANCHOR); })
-      .catch(() => Alert.alert('Sign-in failed', 'Could not fetch your Google profile. Try again.'))
+      .catch(() => showAlert('Sign-in failed', 'Could not fetch your Google profile. Try again.'))
       .finally(() => setSigningIn(false));
   }, [response]);
 
@@ -163,7 +163,7 @@ export default function OnboardingScreen({ onComplete }) {
       await flushQueue();
       onComplete(user);
     } catch (e) {
-      Alert.alert('Error', e.message);
+      showAlert('Error', e.message);
     } finally {
       setLoading(false);
     }

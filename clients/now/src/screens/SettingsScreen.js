@@ -7,11 +7,12 @@
  * blindly.
  */
 import React, { useState, useEffect, useCallback } from 'react';
-import { View, Text, Switch, TouchableOpacity, TextInput, StyleSheet, Alert, ActivityIndicator, ScrollView } from 'react-native';
+import { View, Text, Switch, TouchableOpacity, TextInput, StyleSheet, ActivityIndicator, ScrollView } from 'react-native';
 import * as Notifications from 'expo-notifications';
 import { getUser, clearAll } from '../store/session';
 import { deleteAccount, getBehaviorStatus, establishBehavior, overrideNudgeAnchor } from '../api/engine';
 import { registerPushToken } from '../push';
+import { showAlert } from '../utils/alert';
 
 function daysSince(dateStr) {
   if (!dateStr) return 0;
@@ -52,7 +53,7 @@ export default function SettingsScreen({ onBack, onDeleteAccount }) {
       await establishBehavior(user.id, 'medication', 'daily');
       await loadNudgeStatus(user.id);
     } catch (e) {
-      Alert.alert("Couldn't set that up", e.message);
+      showAlert("Couldn't set that up", e.message);
     } finally {
       setEstablishing(false);
     }
@@ -67,7 +68,7 @@ export default function SettingsScreen({ onBack, onDeleteAccount }) {
       setOverrideAnchor(''); setOverrideTime('');
       await loadNudgeStatus(user.id);
     } catch (e) {
-      Alert.alert("Couldn't save that", e.message);
+      showAlert("Couldn't save that", e.message);
     }
   }
 
@@ -75,7 +76,7 @@ export default function SettingsScreen({ onBack, onDeleteAccount }) {
     if (val) {
       const { granted } = await Notifications.requestPermissionsAsync();
       setNotifEnabled(granted);
-      if (!granted) return Alert.alert('Notifications blocked', 'Enable them in iOS Settings > NOW.');
+      if (!granted) return showAlert('Notifications blocked', 'Enable them in iOS Settings > NOW.');
       // Permission alone doesn't register the device with the engine --
       // this is the one place that actually sends the token, with the
       // real failure reason surfaced if it doesn't work.
@@ -83,12 +84,12 @@ export default function SettingsScreen({ onBack, onDeleteAccount }) {
     } else {
       setNotifEnabled(false);
       // Note: can't programmatically revoke; tell user to go to Settings
-      Alert.alert('To disable', 'Go to iOS/Android Settings and turn off notifications for NOW.');
+      showAlert('To disable', 'Go to iOS/Android Settings and turn off notifications for NOW.');
     }
   }
 
   function confirmDelete() {
-    Alert.alert(
+    showAlert(
       'Delete all data',
       'This permanently erases your account and all check-in history from our servers. This cannot be undone.',
       [
@@ -100,7 +101,7 @@ export default function SettingsScreen({ onBack, onDeleteAccount }) {
             await clearAll();
             onDeleteAccount?.();
           } catch (e) {
-            Alert.alert("Couldn't delete", e.message || 'Check your connection and try again.');
+            showAlert("Couldn't delete", e.message || 'Check your connection and try again.');
           } finally {
             setDeleting(false);
           }

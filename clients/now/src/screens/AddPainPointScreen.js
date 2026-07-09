@@ -5,8 +5,9 @@
  * later via POST /commitments directly instead of only at registration.
  */
 import React, { useState } from 'react';
-import { View, Text, TextInput, TouchableOpacity, StyleSheet, Alert, ActivityIndicator } from 'react-native';
+import { View, Text, TextInput, TouchableOpacity, StyleSheet, ActivityIndicator } from 'react-native';
 import { createCommitment } from '../api/engine';
+import { showAlert } from '../utils/alert';
 
 const STEP_CHOOSE = 0;
 const STEP_TIME = 1;
@@ -86,7 +87,7 @@ export default function AddPainPointScreen({ user, onCreated }) {
       setTime(defaultTime());
       onCreated?.();
     } catch (e) {
-      Alert.alert("Couldn't add that", e.message);
+      showAlert("Couldn't add that", e.message);
     } finally {
       setLoading(false);
     }

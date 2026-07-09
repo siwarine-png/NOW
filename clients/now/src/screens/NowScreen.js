@@ -14,7 +14,7 @@
 import React, { useState, useEffect, useCallback } from 'react';
 import {
   View, Text, TouchableOpacity, StyleSheet, ActivityIndicator,
-  Alert, AppState, ScrollView,
+  AppState, ScrollView,
 } from 'react-native';
 import { getInterventionNow, postCheckin, postSnooze, postEquivalentCheckin } from '../api/engine';
 import { enqueue, flushQueue } from '../store/queue';
