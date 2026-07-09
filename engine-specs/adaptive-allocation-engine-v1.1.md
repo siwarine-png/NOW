@@ -1,13 +1,17 @@
 # Adaptive Allocation Engine — MVP1 Spec
 
-**Version:** v1.1
-**Changelog from v1.0:** replaces the manual, static `priority` ranking in
-§2.2/§3 with a computed **identity-gap weight** (§2.3, §3) — desired identity
-position minus measured current identity position, per spectrum axis, smoothed
-over time to avoid week-to-week thrashing. Adds §2.3 (the identity spectrum
-itself: how many axes, what they are, where they come from). Sections 1, 4
-(output shape), 5, and 6 carry over with only the wording needed to reflect
-that priority is now derived, not user-set.
+**Version:** v1.2
+**Changelog from v1.1:** replaces the placeholder axis set in §2.3 with a
+research-grounded spectrum — Aspiration Index (Kasser & Ryan) for the
+competing "want" axes, Baumeister & Leary's need-to-belong finding for a new
+**floor + flex** split on Relationships (and, by the same logic, Finance).
+Adds Recreation as a sixth axis (included deliberately despite no direct
+research backing — see §2.3). Explicitly and permanently excludes Fame and
+Image as axes on ethical grounds: research shows pursuing them doesn't
+improve wellbeing, so the engine has no business helping anyone chase them.
+§3's Phase 1 now reserves floor hours for Relationships/Finance alongside
+Foundation; Phase 2's axis-ask for those two axes only competes for the
+*flex* portion above the floor.
 **Status:** Sibling to the Adaptive Nudge Engine (v1.1) and the Adherence
 Addendum (v2.1.1) — together these are the three engines behind the product:
 
@@ -103,30 +107,54 @@ feature with no read access into this engine.
 
 ### 2.3 Identity spectrum: how many axes, and what they are
 
-Not invented fresh — BECOME's blueprint library already carries a working
-category taxonomy (`index.html`, `category:` field on every blueprint), and
-it's already the right shape: small, and validated by actually having real
-content written against it, not a theoretical wheel-of-life diagram.
+v1.1 used BECOME's existing blueprint categories as-is. v1.2 checked that
+set against actual research on what people durably aspire to become, rather
+than a coaching heuristic (Wheel of Life) or a wellbeing-measurement
+instrument (WHOQOL) bent sideways into a "life domains" taxonomy it wasn't
+built for. Two sources actually fit the question being asked:
 
-| Axis | Covers | Competes for gap-driven allocation? |
+- **Aspiration Index** (Kasser & Ryan, grounded in Self-Determination
+  Theory) — a validated instrument measuring the life goals people actually
+  hold, split into *intrinsic* goals (Personal Growth, Affiliation,
+  Community) and *extrinsic* goals (Wealth, Fame, Image), plus Physical
+  Health as a goal that loads on neither cleanly. Sheldon & Kasser's 1998
+  longitudinal study found attaining intrinsic goals predicts higher
+  well-being; attaining extrinsic goals largely doesn't.
+- **Baumeister & Leary (1995), "The Need to Belong"** — extensively
+  replicated evidence that social connection is a fundamental need, not a
+  discretionary preference. Combined with Tay & Diener's 2011 cross-cultural
+  study (123 countries, Gallup World Poll), which found Maslow's need
+  *categories* hold up empirically even though his strict sequential
+  hierarchy doesn't (people pursue belonging/esteem in parallel with
+  survival needs, not only after them).
+
+Net effect on the axis set:
+
+| Axis | Type | Basis |
 |---|---|---|
-| **Foundation** | Sleep, meals, movement, hygiene, rest | **No** — this *is* §2.1's immutable-constraint layer. Reserved first, never competes for the free pool. |
-| **Relationships** | Family, partner, friends, social connection | Yes |
-| **Achievement** | Work, career, mastery, personal projects | Yes |
-| **Contribution** | Community, generativity, giving back | Yes |
-| **Custom** | Anything a user defines that doesn't fit the three above | Yes — treated as its own axis per user, not merged into one bucket |
+| **Foundation** | Need — fixed, never competes | Physiological/safety needs (Maslow's categories, as confirmed by Tay & Diener) |
+| **Relationships** | Need floor + Want flex | Floor: Baumeister & Leary (belonging is a real need). Flex above floor: Aspiration Index's Affiliation |
+| **Finance** | Need floor + Want flex | Floor: baseline financial security. Flex above floor: Aspiration Index's Wealth |
+| **Achievement** | Want, competes | Aspiration Index's Personal Growth + Tay & Diener's Mastery/Respect/Autonomy |
+| **Contribution** | Want, competes | Aspiration Index's Community |
+| **Recreation** | Want, competes | **Not in either source above** — included anyway, deliberately, on a "better to have room for it than not" basis. Flagged honestly as the one axis without direct research backing. |
 
-So: **three universal, competing axes** (Relationships / Achievement /
-Contribution), plus Foundation handled separately as constraints, plus an
-open-ended Custom axis for whatever doesn't fit. This deliberately does not
-attempt a bigger academic wheel-of-life (health/career/finance/growth/
-spirituality/fun/...) — more axes means more simultaneous gaps competing for
-the same free pool, which dilutes the whole point of computing a gap in the
-first place. Three is enough to be genuinely "universal" (maps to
-well-established competence/relatedness/purpose needs) without fragmenting
-allocation into slivers.
+**Deliberately, permanently excluded: Fame and Image.** Not a research gap —
+the opposite. This is the one place more coverage was considered and
+rejected on purpose: Sheldon & Kasser's finding is that *attaining* these
+goals doesn't improve well-being. Building an engine that helps someone
+allocate more of their week toward chasing fame or image would mean
+actively assisting a goal the evidence says doesn't help them, which fails
+the same ethical bar that ruled out happiness/mood as a scoring input in
+§2.2 — the engine should support what's actually good for the person, not
+every possible want indiscriminately.
 
-For each axis:
+Six axes total (one fixed, five competing) — up from v1.1's three, but each
+addition is either research-backed or an explicit, named exception, not
+scope creep.
+
+For each competing axis (Relationships/Finance additionally carry a floor,
+see §3):
 
 ```json
 {
@@ -138,12 +166,27 @@ For each axis:
 }
 ```
 
+```json
+{
+  "axis": "relationships",
+  "floor_hours_per_week": 3,
+  "desired_hours_per_week": 18,
+  "current_hours_per_week": 12,
+  "gap_raw": 6,
+  "gap_smoothed": 4.1
+}
+```
+
 - `desired_hours_per_week` — sum of `target_hours_per_week` across all active
-  commitments tagged to this axis. User-set, same as v1.0 — the engine never
+  commitments tagged to this axis. User-set, same as v1.1 — the engine never
   invents what you want.
 - `current_hours_per_week` — **measured**, not self-assessed: trailing actual
   hours completed on this axis's commitments (same source data as
   `completion_rate`, aggregated per axis instead of per commitment).
+- `floor_hours_per_week` — **Relationships and Finance only.** A
+  non-negotiable minimum, reserved in Phase 1 alongside Foundation (§3) —
+  same "cannot remove, can exceed" framing as immutable constraints, just
+  applied to a want-axis's baseline instead of a physiological one.
 - `gap_raw = desired − current`, floored at 0 (over-delivering on an axis
   isn't a debt the engine tracks or "spends down" elsewhere).
 - `gap_smoothed` — see §3; this is the value actually used for weighting,
@@ -156,16 +199,21 @@ For each axis:
 Two phases, both deterministic — no ML/LLM in this path, same founding
 principle as the other two engines.
 
-### Phase 1 — Reserve constraints
+### Phase 1 — Reserve constraints and floors
 
 ```
 committed_hours = Σ (constraint.min_minutes / 60) for all immutable constraints
+                + relationships.floor_hours_per_week
+                + finance.floor_hours_per_week
 free_pool = 168 − committed_hours
 ```
 
 Constraints are reserved at their *minimum*, not their maximum — the
 remainder up to `max_minutes` is available discretionary buffer, not
-pre-committed, so it doesn't starve the free pool by default.
+pre-committed, so it doesn't starve the free pool by default. Relationships'
+and Finance's floors are reserved in full here, same as Foundation — they
+are guaranteed before anything else is distributed, not something that has
+to win a gap-ranking contest.
 
 ### Phase 2 — Distribute the free pool
 
@@ -202,12 +250,19 @@ starved to zero — the point is budget allocation, not punishment.)
 
 ```
 axis_ask = Σ target_hours_per_week for commitments on this axis
+           minus floor_hours_per_week (Relationships/Finance only — already reserved in Phase 1)
 if axis_ask <= free_pool:
-    grant each commitment its full target_hours_per_week
+    grant each commitment its full target_hours_per_week (minus its share of the floor, already covered)
 else:
     grant each commitment target_hours_per_week × (weight / Σ weights on this axis) × (free_pool / axis_ask)
 free_pool -= Σ granted this axis
 ```
+
+For Relationships and Finance, the floor is never re-litigated here — it's
+already spent in Phase 1. This step only ever fights over the *flex* portion
+above it, so a bad week can shrink how much *extra* relationship or
+financial time gets granted, but never eats into the guaranteed floor
+itself.
 
 Move to the next axis (next-largest `gap_smoothed`) with whatever
 `free_pool` remains. The axis with the biggest gap is always satisfied
@@ -238,11 +293,14 @@ both-anchors-failed stopping rule.
 ```json
 {
   "week_of": "2026-07-13",
-  "free_pool_hours": 71.5,
+  "free_pool_hours": 68.5,
+  "floors_reserved": { "relationships": 3, "finance": 2 },
   "axis_order": [
     { "axis": "achievement", "gap_smoothed": 9.2 },
     { "axis": "relationships", "gap_smoothed": 4.1 },
-    { "axis": "contribution", "gap_smoothed": 0.6 }
+    { "axis": "finance", "gap_smoothed": 1.8 },
+    { "axis": "contribution", "gap_smoothed": 0.6 },
+    { "axis": "recreation", "gap_smoothed": 0.2 }
   ],
   "allocations": [
     { "commitment_id": "c_deep_work", "axis": "achievement", "granted_hours": 20, "of_target": 20 },
@@ -299,6 +357,13 @@ this budget as its input).
   box.
 - **Happiness/mood as a scoring input.** See §2.2 — considered and
   explicitly rejected.
-- **More than four axes.** Considered and rejected in §2.3 — a
-  wheel-of-life-sized taxonomy would fragment the free pool across too many
-  simultaneous gaps to make gap-ranking meaningful.
+- **Fame and Image as axes.** See §2.3 — the one exclusion made on ethical
+  grounds rather than evidence-absence: research shows attaining these
+  goals doesn't improve well-being, so the engine has no legitimate reason
+  to help anyone allocate more week toward them.
+- **A floor on Achievement, Contribution, or Recreation.** Only
+  Relationships and Finance got the floor+flex treatment, because those are
+  the only two with a specific, named research basis (need to belong;
+  baseline financial security) for treating part of them as non-negotiable.
+  Extending floors to the other axes without equivalent justification would
+  just be re-inventing manual priority under a new name.
