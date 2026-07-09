@@ -1,0 +1,34 @@
+{
+  "expo": {
+    "name": "NOW",
+    "slug": "now-app",
+    "version": "1.0.0",
+    "orientation": "portrait",
+    "userInterfaceStyle": "dark",
+    "scheme": "now-app",
+    "splash": {
+      "backgroundColor": "#0f172a",
+      "resizeMode": "contain"
+    },
+    "android": {
+      "package": "com.siwarin.e.nowapp",
+      "googleServicesFile": "./google-services.json"
+    },
+    "web": {
+      "bundler": "metro",
+      "output": "single",
+      "name": "NOW",
+      "backgroundColor": "#0f172a",
+      "themeColor": "#0f172a",
+      "display": "standalone"
+    },
+    "plugins": [
+      "expo-notifications"
+    ],
+    "extra": {
+      "eas": {
+        "projectId": "fd2d3121-71a4-41c9-9fcd-5b61384384ca"
+      }
+    }
+  }
+}

@@ -1,0 +1,25 @@
+{
+  "cli": {
+    "version": ">= 5.9.0"
+  },
+  "build": {
+    "development": {
+      "developmentClient": true,
+      "distribution": "internal",
+      "android": {
+        "buildType": "apk"
+      }
+    },
+    "production": {
+      "distribution": "internal",
+      "environment": "production",
+      "android": {
+        "buildType": "apk"
+      },
+      "env": {
+        "EXPO_PUBLIC_ENGINE_URL": "https://engine-api-321521216754.asia-southeast1.run.app",
+        "EXPO_PUBLIC_GOOGLE_ANDROID_CLIENT_ID": "321521216754-in2eki623q00e22bf9vd4hnmeqqm68n2.apps.googleusercontent.com"
+      }
+    }
+  }
+}

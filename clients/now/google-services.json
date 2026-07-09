@@ -1,0 +1,39 @@
+{
+  "project_info": {
+    "project_number": "321521216754",
+    "project_id": "adhd-501403",
+    "storage_bucket": "adhd-501403.firebasestorage.app"
+  },
+  "client": [
+    {
+      "client_info": {
+        "mobilesdk_app_id": "1:321521216754:android:8dc7ce7b591353e3f0b46b",
+        "android_client_info": {
+          "package_name": "com.siwarin.e.nowapp"
+        }
+      },
+      "oauth_client": [
+        {
+          "client_id": "321521216754-85egav3t15fkq9uvlrdp39tm7nnahlal.apps.googleusercontent.com",
+          "client_type": 3
+        }
+      ],
+      "api_key": [
+        {
+          "current_key": "AIzaSyDMDjZzmcIFDqOke8EQBzjmPZgQ4_Vjjuc"
+        }
+      ],
+      "services": {
+        "appinvite_service": {
+          "other_platform_oauth_client": [
+            {
+              "client_id": "321521216754-85egav3t15fkq9uvlrdp39tm7nnahlal.apps.googleusercontent.com",
+              "client_type": 3
+            }
+          ]
+        }
+      }
+    }
+  ],
+  "configuration_version": "1"
+}

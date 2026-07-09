@@ -1,0 +1,208 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<title>NOW — Back Office</title>
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<!--
+  Internal tool only — run this file locally (open it directly in a browser),
+  never deploy it publicly. It holds your ADMIN_SECRET in the browser and
+  sends it as a header on every request; anyone who can load this page with
+  your secret filled in has full read access to every user's data.
+-->
+<style>
+*{box-sizing:border-box;margin:0;padding:0;font-family:system-ui,-apple-system,sans-serif;}
+body{background:#0f172a;color:#e2e8f0;padding:24px;max-width:1000px;margin:0 auto;}
+h1{font-size:20px;margin-bottom:4px;}
+.sub{color:#64748b;font-size:12px;margin-bottom:20px;}
+.config{display:flex;gap:8px;margin-bottom:24px;flex-wrap:wrap;}
+.config input{flex:1;min-width:200px;background:#1e293b;border:1px solid #334155;border-radius:8px;padding:8px 10px;color:#e2e8f0;font-size:13px;}
+.config button{background:#6366f1;border:none;border-radius:8px;padding:8px 16px;color:#fff;font-weight:700;font-size:13px;cursor:pointer;}
+.tabs{display:flex;gap:4px;margin-bottom:16px;border-bottom:1px solid #1e293b;}
+.tab{padding:8px 14px;font-size:13px;font-weight:700;color:#64748b;cursor:pointer;border-bottom:2px solid transparent;}
+.tab.active{color:#818cf8;border-bottom-color:#6366f1;}
+.panel{display:none;}
+.panel.active{display:block;}
+.cards{display:grid;grid-template-columns:repeat(auto-fit,minmax(160px,1fr));gap:10px;margin-bottom:16px;}
+.card{background:#1e293b;border-radius:10px;padding:14px;border:1px solid #334155;}
+.card .val{font-size:22px;font-weight:900;color:#a5b4fc;}
+.card .lbl{font-size:10px;color:#64748b;text-transform:uppercase;letter-spacing:.5px;margin-top:2px;}
+.gate-note{font-size:12px;color:#94a3b8;background:#1e293b;border-radius:8px;padding:10px 12px;margin-bottom:16px;line-height:1.5;}
+table{width:100%;border-collapse:collapse;font-size:12px;}
+th{text-align:left;color:#64748b;font-size:10px;text-transform:uppercase;letter-spacing:.5px;padding:8px 6px;border-bottom:1px solid #334155;}
+td{padding:8px 6px;border-bottom:1px solid #1e293b;}
+tr:hover td{background:#1e293b;}
+.pill{display:inline-block;padding:2px 8px;border-radius:10px;font-size:10px;font-weight:700;}
+.pill.done{background:#052e1a;color:#34d399;}
+.pill.snoozed{background:#3f2d05;color:#fbbf24;}
+.pill.ignored{background:#3f0505;color:#f87171;}
+.pill.acted{background:#052e1a;color:#34d399;}
+.muted{color:#64748b;}
+.loadmore{margin-top:10px;background:none;border:1px solid #334155;color:#94a3b8;border-radius:8px;padding:6px 12px;font-size:12px;cursor:pointer;}
+.err{color:#f87171;font-size:12px;margin-top:8px;}
+.eventsRow{cursor:pointer;color:#818cf8;}
+select{background:#1e293b;border:1px solid #334155;border-radius:6px;color:#e2e8f0;padding:4px 8px;font-size:12px;margin-bottom:10px;}
+</style>
+</head>
+<body>
+
+<h1>NOW — Back Office</h1>
+<div class="sub">Read-only usage analytics. Nothing here can modify data.</div>
+
+<div class="config">
+  <input id="engineUrl" placeholder="Engine URL, e.g. https://engine-api-xxx.run.app">
+  <input id="adminSecret" type="password" placeholder="ADMIN_SECRET">
+  <input id="appId" placeholder="app_id (optional — blank = all apps)">
+  <button onclick="connect()">Load</button>
+</div>
+<div id="topErr" class="err"></div>
+
+<div class="tabs">
+  <div class="tab active" data-tab="overview" onclick="showTab('overview')">Overview</div>
+  <div class="tab" data-tab="rules" onclick="showTab('rules')">Rule performance</div>
+  <div class="tab" data-tab="users" onclick="showTab('users')">Users</div>
+  <div class="tab" data-tab="events" onclick="showTab('events')">Events</div>
+</div>
+
+<div id="overview" class="panel active"></div>
+<div id="rules" class="panel"></div>
+<div id="users" class="panel"></div>
+<div id="events" class="panel"></div>
+
+<script>
+function cfg() {
+  return {
+    url: document.getElementById('engineUrl').value.replace(/\/$/, ''),
+    secret: document.getElementById('adminSecret').value,
+    appId: document.getElementById('appId').value.trim(),
+  };
+}
+function saveCfg(c) {
+  localStorage.setItem('now_admin_cfg', JSON.stringify(c));
+}
+function loadCfg() {
+  try {
+    var c = JSON.parse(localStorage.getItem('now_admin_cfg') || '{}');
+    if (c.url) document.getElementById('engineUrl').value = c.url;
+    if (c.secret) document.getElementById('adminSecret').value = c.secret;
+    if (c.appId) document.getElementById('appId').value = c.appId;
+  } catch (e) {}
+}
+async function api(path, opts) {
+  var c = cfg();
+  var qp = c.appId ? (path.includes('?') ? '&' : '?') + 'app_id=' + encodeURIComponent(c.appId) : '';
+  var res = await fetch(c.url + path + qp, { method: (opts && opts.method) || 'GET', headers: { 'x-internal-secret': c.secret } });
+  var data = await res.json();
+  if (!res.ok) throw new Error(data.error || ('HTTP ' + res.status));
+  return data;
+}
+function showTab(name) {
+  document.querySelectorAll('.tab').forEach(t => t.classList.toggle('active', t.dataset.tab === name));
+  document.querySelectorAll('.panel').forEach(p => p.classList.toggle('active', p.id === name));
+}
+function pct(x) { return x == null ? '—' : Math.round(x * 100) + '%'; }
+function fmtDate(s) { return s ? new Date(s).toLocaleString() : '—'; }
+
+async function connect() {
+  saveCfg(cfg());
+  document.getElementById('topErr').textContent = '';
+  try {
+    await Promise.all([loadOverview(), loadRules(), loadUsers(0)]);
+    await loadEvents();
+  } catch (e) {
+    document.getElementById('topErr').textContent = e.message;
+  }
+}
+
+async function loadOverview() {
+  var d = await api('/admin/analytics/overview');
+  document.getElementById('overview').innerHTML = `
+    <div class="cards">
+      <div class="card"><div class="val">${d.total_users ?? '—'}</div><div class="lbl">Total users</div></div>
+      <div class="card"><div class="val">${d.users_2wk_plus ?? '—'}</div><div class="lbl">2+ weeks old</div></div>
+      <div class="card"><div class="val">${pct(d.week2_retention)}</div><div class="lbl">Week-2 retention</div></div>
+      <div class="card"><div class="val">${pct(d.snooze_ratio_recent)}</div><div class="lbl">Snooze ratio (last 7d)</div></div>
+      <div class="card"><div class="val">${pct(d.snooze_ratio_prior)}</div><div class="lbl">Snooze ratio (prior 7d)</div></div>
+    </div>
+    <div class="gate-note">
+      <strong>MVP2 gate (from your release strategy):</strong> needs 50-100 users with 2+ weeks of data,
+      week-2 retention above the ADHD-app baseline (not yet defined — needs your first real cohort to set),
+      and the snooze-to-done ratio trending down.<br><br>
+      User-count threshold: <strong style="color:${d.enough_users_for_gate_review ? '#34d399' : '#f87171'}">
+      ${d.enough_users_for_gate_review ? 'MET (≥50 users with 2+ weeks of data)' : 'NOT YET MET'}</strong>.
+      Retention and snooze-trend numbers above are for your own judgment call — this tool doesn't invent a
+      pass/fail bar for those.
+    </div>`;
+}
+
+async function loadRules() {
+  var rows = await api('/admin/analytics/rules');
+  var html = '<table><tr><th>Rule</th><th>Fired</th><th>Acted</th><th>Ignored</th><th>Acted rate</th></tr>';
+  if (rows.length === 0) html += '<tr><td colspan="5" class="muted">No interventions logged yet.</td></tr>';
+  rows.forEach(r => {
+    html += `<tr><td>${r.rule_id}</td><td>${r.total}</td><td>${r.acted}</td><td>${r.ignored}</td><td>${pct(r.acted_rate)}</td></tr>`;
+  });
+  document.getElementById('rules').innerHTML = html + '</table>';
+}
+
+var usersOffset = 0;
+async function loadUsers(offset) {
+  usersOffset = offset;
+  var rows = await api('/admin/users?limit=50&offset=' + offset);
+  var html = '<table><tr><th>External ref</th><th>Timezone</th><th>Joined</th><th>Commitments</th><th>Check-ins</th><th>Last check-in</th><th>Push</th><th>Last push</th><th></th></tr>';
+  if (rows.length === 0 && offset === 0) html += '<tr><td colspan="9" class="muted">No users yet.</td></tr>';
+  rows.forEach(u => {
+    var pushStatus = !u.push_enabled ? '<span class="muted">off</span>'
+      : u.last_push_error ? `<span title="${u.last_push_error}" style="color:#c0392b">failing</span>`
+      : 'ok';
+    var testBtn = u.push_enabled ? `<button class="loadmore" onclick="event.stopPropagation();testPush('${u.user_id}',this)">Test push</button>` : '';
+    html += `<tr class="eventsRow" onclick="viewUserEvents('${u.user_id}')">
+      <td>${u.external_ref}</td><td>${u.timezone}</td><td>${fmtDate(u.created_at)}</td>
+      <td>${u.commitment_count}</td><td>${u.checkin_count}</td><td>${fmtDate(u.last_checkin_at)}</td>
+      <td>${pushStatus}</td><td>${fmtDate(u.last_push_sent_at)}</td><td>${testBtn}</td></tr>`;
+  });
+  html += '</table>';
+  if (rows.length === 50) html += `<button class="loadmore" onclick="loadUsers(${offset + 50})">Load more</button>`;
+  document.getElementById('users').innerHTML = html + '<div id="userEvents"></div>';
+}
+
+async function testPush(userId, btn) {
+  btn.disabled = true;
+  btn.textContent = 'Sending...';
+  try {
+    var result = await api('/admin/users/' + userId + '/test-push', { method: 'POST' });
+    alert(result.ok ? 'Delivered.' : 'Rejected: ' + result.error);
+  } catch (e) {
+    alert('Request failed: ' + e.message);
+  }
+  loadUsers(usersOffset);
+}
+
+async function viewUserEvents(userId) {
+  var rows = await api('/admin/users/' + userId + '/events?limit=100');
+  document.getElementById('userEvents').innerHTML = renderEventsTable(rows, 'Events for ' + userId);
+  showTab('users');
+}
+
+async function loadEvents(type) {
+  var rows = await api('/admin/events?limit=100' + (type ? '&type=' + encodeURIComponent(type) : ''));
+  var types = [...new Set(rows.map(r => r.type))];
+  var sel = '<select onchange="loadEvents(this.value)"><option value="">All types</option>' +
+    types.map(t => `<option value="${t}" ${t === type ? 'selected' : ''}>${t}</option>`).join('') + '</select>';
+  document.getElementById('events').innerHTML = sel + renderEventsTable(rows);
+}
+
+function renderEventsTable(rows, title) {
+  var html = (title ? `<h3 style="margin:12px 0 8px;font-size:13px;">${title}</h3>` : '') +
+    '<table><tr><th>When</th><th>Type</th><th>Payload</th></tr>';
+  if (rows.length === 0) html += '<tr><td colspan="3" class="muted">No events.</td></tr>';
+  rows.forEach(e => {
+    html += `<tr><td>${fmtDate(e.created_at)}</td><td>${e.type}</td><td class="muted">${JSON.stringify(e.payload)}</td></tr>`;
+  });
+  return html + '</table>';
+}
+
+loadCfg();
+</script>
+</body>
+</html>
