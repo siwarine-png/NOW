@@ -6,6 +6,16 @@
 self.addEventListener('install', function (e) { self.skipWaiting(); });
 self.addEventListener('activate', function (e) { e.waitUntil(self.clients.claim()); });
 
+// A no-op passthrough, but its presence matters: Chrome's installability
+// check (what actually enables "Add to Home Screen" / its own Android
+// notification-settings entry, not just a browser-tab permission) has
+// historically required the service worker to handle `fetch`, not just
+// `push` -- a push-only worker like this one previously had can be
+// registered and active while still not counting as installable.
+self.addEventListener('fetch', function (e) {
+  e.respondWith(fetch(e.request));
+});
+
 self.addEventListener('push', function (e) {
   var data = {};
   try { data = e.data ? e.data.json() : {}; } catch (err) {}
