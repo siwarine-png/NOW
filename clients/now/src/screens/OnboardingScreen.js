@@ -9,12 +9,14 @@
  *
  * STEP_IDENTITY (after the nudge-timing steps) seeds the Adaptive Allocation
  * Engine's identity spectrum -- relative priority (1-5, tap +/- only, no
- * typing) per want axis, not precise hour targets. This is a proxy for
- * desired_hours_per_week until the Allocation Engine itself exists to
- * translate it; see migration 014_identity_priorities.sql. It's also the
- * last onboarding step now -- the old pain-point question (Step 5) was
- * removed as redundant with "I'm Stuck" (AddPainPointScreen), which asks
- * the identical question at the moment someone actually needs it, not
+ * typing) per axis, Foundation included for now (see IDENTITY_AXES comment
+ * -- the spec's real Foundation treatment is unresolved, not decided, and
+ * this is a deliberate simplification, not the final design). This is a
+ * proxy for desired_hours_per_week until the Allocation Engine itself
+ * exists to translate it; see migration 014_identity_priorities.sql. It's
+ * also the last onboarding step now -- the old pain-point question (Step 5)
+ * was removed as redundant with "I'm Stuck" (AddPainPointScreen), which
+ * asks the identical question at the moment someone actually needs it, not
  * hypothetically before they've used the app at all. Registering with no
  * pain_point_type falls through to the same "not sure yet" default
  * (seedDomainsForUser) the picker's third option used to call explicitly.
@@ -62,30 +64,24 @@ const ENERGY_OPTIONS = [
 const DEFAULT_TIME_BY_ENERGY = { morning: '08:00', midday: '13:00', evening: '19:00' };
 
 // Adaptive Allocation Engine's identity spectrum (engine-specs/
-// adaptive-allocation-engine-v1.1.md §2.3) minus Foundation -- Foundation's
-// desired value is prescribed (BLOCK_GUIDELINES' healthy-range max), not
-// user-set, so it has no place in a "how much do you want this" question.
-// 1-5 relative priority, no typing, same tap-only shape as the rest of
-// onboarding -- a proxy for desired_hours_per_week until the Allocation
-// Engine exists to translate it (see migration 014's comment).
+// adaptive-allocation-engine-v1.1.md §2.3). Spec says Foundation's desired
+// value should be prescribed (BLOCK_GUIDELINES' healthy-range max), not a
+// user priority weight, and a separate status question was tried here
+// briefly for exactly that reason -- deliberately simplified back to "same
+// mechanic as everything else" for now, to keep shipping; the real
+// Foundation treatment is unresolved, not decided, and needs revisiting
+// once the seeding layer (Foundation constraints + axis-tagged starter
+// commitments) actually exists to make any of this real. 1-5 relative
+// priority, no typing, same tap-only shape as the rest of onboarding.
 const IDENTITY_AXES = [
+  { key: 'foundation', label: 'Foundation' },
   { key: 'relationships', label: 'Relationships' },
   { key: 'achievement', label: 'Achievement' },
   { key: 'finance', label: 'Finance' },
   { key: 'contribution', label: 'Contribution' },
   { key: 'recreation', label: 'Recreation' },
 ];
-const DEFAULT_IDENTITY_PRIORITIES = { relationships: 3, achievement: 3, finance: 3, contribution: 3, recreation: 3 };
-
-// Foundation gets a status question, not a priority weight -- "how much do
-// you want this" doesn't apply to sleep/meals/movement the way it does to
-// the five want axes above. This just tells the Allocation Engine's gap
-// tracking (v1.3) whether to start Foundation's flex-hour competition
-// assuming a real gap from week one, instead of guessing cold.
-const FOUNDATION_STATUS_OPTIONS = [
-  { key: 'solid', label: "It's solid" },
-  { key: 'rebuilding', label: 'I need to rebuild it' },
-];
+const DEFAULT_IDENTITY_PRIORITIES = { foundation: 3, relationships: 3, achievement: 3, finance: 3, contribution: 3, recreation: 3 };
 
 // Accepts "630", "1830", "6", "18:30" etc. and normalizes to "HH:MM" — no ":"
 // key needed. 1-2 digits = hour only ("6" -> 06:00); 3-4 digits = hour+minutes,
@@ -155,7 +151,6 @@ export default function OnboardingScreen({ onComplete }) {
   const [customTime, setCustomTime] = useState('');
 
   const [identityPriorities, setIdentityPriorities] = useState(DEFAULT_IDENTITY_PRIORITIES);
-  const [foundationStatus, setFoundationStatus] = useState(null);
 
   function adjustPriority(axisKey, delta) {
     setIdentityPriorities(p => ({ ...p, [axisKey]: Math.max(1, Math.min(5, p[axisKey] + delta)) }));
@@ -198,7 +193,7 @@ export default function OnboardingScreen({ onComplete }) {
         anchor_time: anchorTime,
         energy_window: energyWindow,
         delivery_method: 'push',
-        identity_priorities: { ...identityPriorities, foundation_status: foundationStatus || 'solid' },
+        identity_priorities: identityPriorities,
       });
       await setUser(user);
       await markOnboarded();
@@ -334,27 +329,7 @@ export default function OnboardingScreen({ onComplete }) {
   if (step === STEP_IDENTITY) return (
     <ScrollView contentContainerStyle={s.centerScroll}>
       <Text style={s.stepLabel}>Step 4 of {TOTAL_STEPS}</Text>
-      <Text style={s.title}>Where are you{'\n'}starting from?</Text>
-
-      <View style={s.priorityList}>
-        <View style={s.priorityRow}>
-          <Text style={s.priorityLabel}>Foundation</Text>
-          <Text style={s.foundationHint}>sleep, meals, movement</Text>
-        </View>
-        <View style={s.foundationOptions}>
-          {FOUNDATION_STATUS_OPTIONS.map(opt => (
-            <TouchableOpacity
-              key={opt.key}
-              style={[s.foundationOptionBtn, foundationStatus === opt.key && s.foundationOptionBtnActive]}
-              onPress={() => setFoundationStatus(opt.key)}
-            >
-              <Text style={[s.foundationOptionText, foundationStatus === opt.key && s.foundationOptionTextActive]}>{opt.label}</Text>
-            </TouchableOpacity>
-          ))}
-        </View>
-      </View>
-
-      <Text style={[s.title, { fontSize: 20, marginTop: 8 }]}>What matters most{'\n'}to you right now?</Text>
+      <Text style={s.title}>What matters most{'\n'}to you right now?</Text>
       <Text style={s.hint}>Tap + or − for each. No wrong answer.</Text>
 
       <View style={s.priorityList}>
@@ -425,10 +400,4 @@ const s = StyleSheet.create({
   priorityDots: { flexDirection: 'row', gap: 4 },
   priorityDot: { width: 8, height: 8, borderRadius: 4, backgroundColor: '#1e293b', borderWidth: 1, borderColor: '#334155' },
   priorityDotFilled: { backgroundColor: '#6366f1', borderColor: '#6366f1' },
-  foundationHint: { fontSize: 11, color: '#64748b' },
-  foundationOptions: { flexDirection: 'row', gap: 10, paddingVertical: 10 },
-  foundationOptionBtn: { flex: 1, paddingVertical: 10, borderRadius: 10, borderWidth: 1, borderColor: '#334155', backgroundColor: '#1e293b', alignItems: 'center' },
-  foundationOptionBtnActive: { borderColor: '#6366f1', backgroundColor: '#312e81' },
-  foundationOptionText: { fontSize: 13, fontWeight: '700', color: '#94a3b8' },
-  foundationOptionTextActive: { color: '#e0e7ff' },
 });
