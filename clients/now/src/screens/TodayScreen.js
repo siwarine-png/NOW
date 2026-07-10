@@ -39,6 +39,11 @@ function fmtMinutesUntil(min) {
   return `in ${h}h ${m}m`;
 }
 
+function axisLabel(axis) {
+  if (!axis) return null;
+  return axis.charAt(0).toUpperCase() + axis.slice(1);
+}
+
 function Row({ item, onDone, acting }) {
   return (
     <View style={s.row}>
@@ -48,6 +53,7 @@ function Row({ item, onDone, acting }) {
         <Text style={s.rowTime}>
           {item.window_start ? `${fmtTime(item.window_start)}–${fmtTime(item.window_end)}` : 'Anytime'}
           {item.minutes_until != null ? ` · ${fmtMinutesUntil(item.minutes_until)}` : ''}
+          {item.identity_axis ? ` · ${axisLabel(item.identity_axis)}` : ''}
         </Text>
       </View>
       {item.done ? (

@@ -14,7 +14,7 @@ function timeToMinutes(t) {
 
 // POST /commitments
 router.post('/', async (req, res) => {
-  const { user_id, title, next_action, why, identity_tag,
+  const { user_id, title, next_action, why, identity_tag, identity_axis,
           cadence, window_start, window_end, deadline,
           priority_tier, parent_commitment_id } = req.body;
 
@@ -26,7 +26,12 @@ router.post('/', async (req, res) => {
 
   const { data, error } = await sb
     .from('commitments')
-    .insert({ user_id, title, next_action, why, identity_tag,
+    // identity_axis is distinct from identity_tag (a free-text motivational
+    // label like "writer" -- R5_identity_reinforce) -- this is the Adaptive
+    // Allocation Engine's 6-axis spectrum categorization instead, null for
+    // things that deliberately don't map to one (medication -- see the
+    // column comment in migration 016).
+    .insert({ user_id, title, next_action, why, identity_tag, identity_axis: identity_axis || null,
               cadence: cadence || 'daily', window_start, window_end, deadline,
               priority_tier: priority_tier || 'normal', parent_commitment_id: parent_commitment_id || null })
     .select()
@@ -71,7 +76,7 @@ router.get('/today', async (req, res) => {
 
     const row = {
       commitment_id: c.id, title: c.title, window_start: c.window_start, window_end: c.window_end,
-      priority_tier: c.priority_tier, done: stats.checkedInToday,
+      priority_tier: c.priority_tier, done: stats.checkedInToday, identity_axis: c.identity_axis,
     };
 
     if (!c.window_start || !c.window_end) { anytime.push(row); continue; }

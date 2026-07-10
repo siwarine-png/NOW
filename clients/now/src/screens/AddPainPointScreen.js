@@ -3,6 +3,13 @@
  * onboarding. Same shape as the pain-point question in OnboardingScreen
  * (medicine vs. something else vs. a chosen time), just reachable again
  * later via POST /commitments directly instead of only at registration.
+ *
+ * STEP_AXIS (custom path only) tags the new commitment with an Adaptive
+ * Allocation Engine identity_axis (migration 016) -- one tap, no typing.
+ * Medicine skips it entirely and stays null: adherence-class actions are
+ * governed separately (Adherence Addendum) and don't belong to any of the
+ * 6-axis want/need spectrum, so asking would be a category error, not just
+ * unnecessary friction.
  */
 import React, { useState } from 'react';
 import { View, Text, TextInput, TouchableOpacity, StyleSheet, ActivityIndicator } from 'react-native';
@@ -10,7 +17,17 @@ import { createCommitment } from '../api/engine';
 import { showAlert } from '../utils/alert';
 
 const STEP_CHOOSE = 0;
-const STEP_TIME = 1;
+const STEP_AXIS = 1;
+const STEP_TIME = 2;
+
+const AXES = [
+  { key: 'foundation', label: 'Foundation' },
+  { key: 'relationships', label: 'Relationships' },
+  { key: 'achievement', label: 'Achievement' },
+  { key: 'finance', label: 'Finance' },
+  { key: 'contribution', label: 'Contribution' },
+  { key: 'recreation', label: 'Recreation' },
+];
 
 function addMinutesToTime(hhmm, minutes) {
   const [h, m] = hhmm.split(':').map(Number);
@@ -47,6 +64,7 @@ export default function AddPainPointScreen({ user, onCreated }) {
   const [painPointType, setPainPointType] = useState(null);
   const [showCustom, setShowCustom] = useState(false);
   const [customTitle, setCustomTitle] = useState('');
+  const [identityAxis, setIdentityAxis] = useState(null);
   const [time, setTime] = useState(defaultTime());
   const [pickingTime, setPickingTime] = useState(false);
   const [customTime, setCustomTime] = useState('');
@@ -54,6 +72,11 @@ export default function AddPainPointScreen({ user, onCreated }) {
 
   function choose(type) {
     setPainPointType(type);
+    setStep(type === 'medicine' ? STEP_TIME : STEP_AXIS);
+  }
+
+  function chooseAxis(axisKey) {
+    setIdentityAxis(axisKey);
     setStep(STEP_TIME);
   }
 
@@ -70,17 +93,18 @@ export default function AddPainPointScreen({ user, onCreated }) {
         ? {
             user_id: user.id, title: 'Take medication', next_action: 'Take your medication',
             cadence: 'daily', window_start: finalTime, window_end: addMinutesToTime(finalTime, 30),
-            priority_tier: 'critical',
+            priority_tier: 'critical', identity_axis: null,
           }
         : {
             user_id: user.id, title: customTitle.trim(), next_action: null,
             cadence: 'daily', window_start: finalTime, window_end: addMinutesToTime(finalTime, 60),
-            priority_tier: 'normal',
+            priority_tier: 'normal', identity_axis: identityAxis,
           };
       await createCommitment(payload);
       setStep(STEP_CHOOSE);
       setPainPointType(null);
       setCustomTitle('');
+      setIdentityAxis(null);
       setShowCustom(false);
       setPickingTime(false);
       setCustomTime('');
@@ -92,6 +116,19 @@ export default function AddPainPointScreen({ user, onCreated }) {
       setLoading(false);
     }
   }
+
+  if (step === STEP_AXIS) return (
+    <View style={s.center}>
+      <Text style={s.title}>Which part of your life{'\n'}does this belong to?</Text>
+      <View style={s.chipGrid}>
+        {AXES.map(a => (
+          <TouchableOpacity key={a.key} style={s.chip} onPress={() => chooseAxis(a.key)}>
+            <Text style={s.chipText}>{a.label}</Text>
+          </TouchableOpacity>
+        ))}
+      </View>
+    </View>
+  );
 
   if (step === STEP_TIME) return (
     <View style={s.center}>
@@ -165,4 +202,7 @@ const s = StyleSheet.create({
   btnText: { color: '#fff', fontSize: 16, fontWeight: '800' },
   linkBtn: { paddingVertical: 14 },
   linkBtnText: { color: '#6366f1', fontSize: 14, fontWeight: '700' },
+  chipGrid: { flexDirection: 'row', flexWrap: 'wrap', justifyContent: 'center', gap: 10, maxWidth: 340 },
+  chip: { backgroundColor: '#1e293b', borderRadius: 20, paddingVertical: 10, paddingHorizontal: 16, borderWidth: 1, borderColor: '#334155' },
+  chipText: { color: '#f1f5f9', fontSize: 14, fontWeight: '600' },
 });
