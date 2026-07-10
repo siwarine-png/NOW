@@ -6,6 +6,12 @@
  * checkin-time step used, just driving the anchor test instead of a fixed
  * daily time. Zero typing required; "Something else" is the one optional
  * exception, same as the spec allows for Q1.
+ *
+ * STEP_IDENTITY (after the nudge-timing steps, before the pain point) seeds
+ * the Adaptive Allocation Engine's identity spectrum -- relative priority
+ * (1-5, tap +/- only, no typing) per want axis, not precise hour targets.
+ * This is a proxy for desired_hours_per_week until the Allocation Engine
+ * itself exists to translate it; see migration 014_identity_priorities.sql.
  */
 import React, { useState, useEffect } from 'react';
 import {
@@ -25,7 +31,9 @@ const STEP_INTRO = 0;
 const STEP_ANCHOR = 1;
 const STEP_ENERGY = 2;
 const STEP_CONFIRM_TIME = 3;
-const STEP_PAINPOINT = 4;
+const STEP_IDENTITY = 4;
+const STEP_PAINPOINT = 5;
+const TOTAL_STEPS = 5;
 
 // Mirrors engine/src/engine/nudgeEngine.js's ANCHOR_TIMES -- kept in sync by
 // hand since it's a small, stable display default, not logic the client
@@ -47,6 +55,22 @@ const ENERGY_OPTIONS = [
   { key: 'evening', label: 'Evening' },
 ];
 const DEFAULT_TIME_BY_ENERGY = { morning: '08:00', midday: '13:00', evening: '19:00' };
+
+// Adaptive Allocation Engine's identity spectrum (engine-specs/
+// adaptive-allocation-engine-v1.1.md §2.3) minus Foundation -- Foundation's
+// desired value is prescribed (BLOCK_GUIDELINES' healthy-range max), not
+// user-set, so it has no place in a "how much do you want this" question.
+// 1-5 relative priority, no typing, same tap-only shape as the rest of
+// onboarding -- a proxy for desired_hours_per_week until the Allocation
+// Engine exists to translate it (see migration 014's comment).
+const IDENTITY_AXES = [
+  { key: 'relationships', label: 'Relationships' },
+  { key: 'achievement', label: 'Achievement' },
+  { key: 'finance', label: 'Finance' },
+  { key: 'contribution', label: 'Contribution' },
+  { key: 'recreation', label: 'Recreation' },
+];
+const DEFAULT_IDENTITY_PRIORITIES = { relationships: 3, achievement: 3, finance: 3, contribution: 3, recreation: 3 };
 
 // Accepts "630", "1830", "6", "18:30" etc. and normalizes to "HH:MM" — no ":"
 // key needed. 1-2 digits = hour only ("6" -> 06:00); 3-4 digits = hour+minutes,
@@ -119,6 +143,12 @@ export default function OnboardingScreen({ onComplete }) {
   const [showCustomPainPoint, setShowCustomPainPoint] = useState(false);
   const [customPainPoint, setCustomPainPoint] = useState('');
 
+  const [identityPriorities, setIdentityPriorities] = useState(DEFAULT_IDENTITY_PRIORITIES);
+
+  function adjustPriority(axisKey, delta) {
+    setIdentityPriorities(p => ({ ...p, [axisKey]: Math.max(1, Math.min(5, p[axisKey] + delta)) }));
+  }
+
   function handleCustomTimeChange(text) {
     const digits = text.replace(/\D/g, '').slice(0, 4);
     setCustomTime(digits.length <= 2 ? digits : `${digits.slice(0, -2)}:${digits.slice(-2)}`);
@@ -157,6 +187,7 @@ export default function OnboardingScreen({ onComplete }) {
         delivery_method: 'push',
         pain_point_type: painPoint,
         pain_point_title: painPointTitle,
+        identity_priorities: identityPriorities,
       });
       await setUser(user);
       await markOnboarded();
@@ -199,7 +230,7 @@ export default function OnboardingScreen({ onComplete }) {
 
   if (step === STEP_ANCHOR) return (
     <ScrollView contentContainerStyle={s.centerScroll}>
-      <Text style={s.stepLabel}>Step 1 of 4</Text>
+      <Text style={s.stepLabel}>Step 1 of {TOTAL_STEPS}</Text>
       <Text style={s.title}>What's something you do{'\n'}every single day,{'\n'}no matter what?</Text>
       <View style={s.chipGrid}>
         {ANCHORS.map(a => (
@@ -236,7 +267,7 @@ export default function OnboardingScreen({ onComplete }) {
 
   if (step === STEP_ENERGY) return (
     <View style={s.center}>
-      <Text style={s.stepLabel}>Step 2 of 4</Text>
+      <Text style={s.stepLabel}>Step 2 of {TOTAL_STEPS}</Text>
       <Text style={s.title}>When do you have{'\n'}the most mental energy?</Text>
       {ENERGY_OPTIONS.map(e => (
         <TouchableOpacity key={e.key} style={s.btn} onPress={() => chooseEnergy(e)}>
@@ -248,13 +279,13 @@ export default function OnboardingScreen({ onComplete }) {
 
   if (step === STEP_CONFIRM_TIME) return (
     <View style={s.center}>
-      <Text style={s.stepLabel}>Step 3 of 4</Text>
+      <Text style={s.stepLabel}>Step 3 of {TOTAL_STEPS}</Text>
       <Text style={s.title}>We'll try nudging you{'\n'}around{'\n'}{formatDisplayTime(anchorTime)}.</Text>
       <Text style={s.hint}>Good?</Text>
 
       {!pickingTime ? (
         <>
-          <TouchableOpacity style={s.btn} onPress={() => setStep(STEP_PAINPOINT)}>
+          <TouchableOpacity style={s.btn} onPress={() => setStep(STEP_IDENTITY)}>
             <Text style={s.btnText}>Sounds good →</Text>
           </TouchableOpacity>
           <TouchableOpacity style={s.linkBtn} onPress={() => setPickingTime(true)}>
@@ -276,7 +307,7 @@ export default function OnboardingScreen({ onComplete }) {
             onPress={() => {
               const t = normalizeTime(customTime.trim()) || anchorTime;
               setAnchorTime(t);
-              setStep(STEP_PAINPOINT);
+              setStep(STEP_IDENTITY);
             }}
             style={s.btn}
           >
@@ -287,9 +318,50 @@ export default function OnboardingScreen({ onComplete }) {
     </View>
   );
 
+  if (step === STEP_IDENTITY) return (
+    <ScrollView contentContainerStyle={s.centerScroll}>
+      <Text style={s.stepLabel}>Step 4 of {TOTAL_STEPS}</Text>
+      <Text style={s.title}>What matters most{'\n'}to you right now?</Text>
+      <Text style={s.hint}>Tap + or − for each. No wrong answer.</Text>
+
+      <View style={s.priorityList}>
+        {IDENTITY_AXES.map(axis => (
+          <View key={axis.key} style={s.priorityRow}>
+            <Text style={s.priorityLabel}>{axis.label}</Text>
+            <View style={s.priorityControl}>
+              <TouchableOpacity
+                style={s.priorityBtn}
+                disabled={identityPriorities[axis.key] <= 1}
+                onPress={() => adjustPriority(axis.key, -1)}
+              >
+                <Text style={s.priorityBtnText}>−</Text>
+              </TouchableOpacity>
+              <View style={s.priorityDots}>
+                {[1, 2, 3, 4, 5].map(n => (
+                  <View key={n} style={[s.priorityDot, n <= identityPriorities[axis.key] && s.priorityDotFilled]} />
+                ))}
+              </View>
+              <TouchableOpacity
+                style={s.priorityBtn}
+                disabled={identityPriorities[axis.key] >= 5}
+                onPress={() => adjustPriority(axis.key, 1)}
+              >
+                <Text style={s.priorityBtnText}>+</Text>
+              </TouchableOpacity>
+            </View>
+          </View>
+        ))}
+      </View>
+
+      <TouchableOpacity style={s.btn} onPress={() => setStep(STEP_PAINPOINT)}>
+        <Text style={s.btnText}>Continue →</Text>
+      </TouchableOpacity>
+    </ScrollView>
+  );
+
   if (step === STEP_PAINPOINT) return (
     <View style={s.center}>
-      <Text style={s.stepLabel}>Step 4 of 4</Text>
+      <Text style={s.stepLabel}>Step 5 of {TOTAL_STEPS}</Text>
       <Text style={s.title}>What's the one thing{'\n'}you want help with{'\n'}right now?</Text>
 
       {!showCustomPainPoint ? (
@@ -351,4 +423,13 @@ const s = StyleSheet.create({
   chip: { backgroundColor: '#1e293b', borderRadius: 20, paddingVertical: 10, paddingHorizontal: 16, borderWidth: 1, borderColor: '#334155' },
   chipText: { color: '#f1f5f9', fontSize: 14, fontWeight: '600' },
   customAnchorRow: { alignItems: 'center', marginTop: 4 },
+  priorityList: { width: '100%', maxWidth: 340, marginBottom: 24 },
+  priorityRow: { flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center', paddingVertical: 12, borderBottomWidth: 1, borderBottomColor: '#1e293b' },
+  priorityLabel: { fontSize: 15, fontWeight: '700', color: '#f1f5f9' },
+  priorityControl: { flexDirection: 'row', alignItems: 'center', gap: 10 },
+  priorityBtn: { width: 30, height: 30, borderRadius: 15, backgroundColor: '#1e293b', borderWidth: 1, borderColor: '#334155', alignItems: 'center', justifyContent: 'center' },
+  priorityBtnText: { color: '#818cf8', fontSize: 16, fontWeight: '800' },
+  priorityDots: { flexDirection: 'row', gap: 4 },
+  priorityDot: { width: 8, height: 8, borderRadius: 4, backgroundColor: '#1e293b', borderWidth: 1, borderColor: '#334155' },
+  priorityDotFilled: { backgroundColor: '#6366f1', borderColor: '#6366f1' },
 });

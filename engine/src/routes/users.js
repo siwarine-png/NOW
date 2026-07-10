@@ -17,7 +17,7 @@ router.post('/', async (req, res) => {
   const {
     external_ref, timezone, wake_time, sleep_time, checkin_time,
     anchor_answer, anchor_time, energy_window, delivery_method,
-    pain_point_type, pain_point_title,
+    pain_point_type, pain_point_title, identity_priorities,
   } = req.body;
   if (!external_ref) return res.status(400).json({ error: 'external_ref required' });
 
@@ -36,7 +36,8 @@ router.post('/', async (req, res) => {
     // quiet) rather than the schema's generic 22:00-07:00 default, since nothing
     // in onboarding captures quiet hours separately yet.
     .upsert({ app_id: req.app_id, external_ref, timezone: timezone || 'UTC',
-               wake_time: wt, sleep_time: st, quiet_start: st, quiet_end: wt, checkin_time: ct },
+               wake_time: wt, sleep_time: st, quiet_start: st, quiet_end: wt, checkin_time: ct,
+               ...(identity_priorities ? { identity_priorities } : {}) },
              { onConflict: 'app_id,external_ref' })
     .select()
     .single();
@@ -85,7 +86,7 @@ router.post('/', async (req, res) => {
 
 // PATCH /users/:id — update timezone / quiet hours
 router.patch('/:id', async (req, res) => {
-  const allowed = ['timezone', 'wake_time', 'sleep_time', 'quiet_start', 'quiet_end', 'checkin_time', 'push_token', 'web_push_subscription'];
+  const allowed = ['timezone', 'wake_time', 'sleep_time', 'quiet_start', 'quiet_end', 'checkin_time', 'push_token', 'web_push_subscription', 'identity_priorities'];
   const updates = {};
   allowed.forEach(k => { if (req.body[k] !== undefined) updates[k] = req.body[k]; });
 
