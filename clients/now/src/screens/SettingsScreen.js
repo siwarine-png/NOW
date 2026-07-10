@@ -20,10 +20,11 @@ function daysSince(dateStr) {
   return Math.floor((Date.now() - new Date(`${dateStr}T00:00:00Z`).getTime()) / 86400000) + 1;
 }
 
-export default function SettingsScreen({ onBack, onDeleteAccount }) {
+export default function SettingsScreen({ onBack, onDeleteAccount, onSignOut }) {
   const [user, setUser] = useState(null);
   const [notifEnabled, setNotifEnabled] = useState(false);
   const [deleting, setDeleting] = useState(false);
+  const [signingOut, setSigningOut] = useState(false);
   const [appOpenStatus, setAppOpenStatus] = useState(null);
   const [medStatus, setMedStatus] = useState(null);
   const [establishing, setEstablishing] = useState(false);
@@ -114,6 +115,28 @@ export default function SettingsScreen({ onBack, onDeleteAccount }) {
       // Note: can't programmatically revoke; tell user to go to Settings
       showAlert('To disable', 'Go to iOS/Android Settings and turn off notifications for NOW.');
     }
+  }
+
+  // Local-only reset -- clears this device's session but never touches the
+  // server, unlike confirmDelete below. The distinction matters for
+  // switching between a real account and a test account: sign out + sign
+  // back in with a different Google account picks up (or creates) that
+  // account's own data, while the original account's history stays intact
+  // on the server the whole time, ready to sign back into later.
+  function confirmSignOut() {
+    showAlert(
+      'Sign out',
+      'This keeps your account and data -- sign back in anytime with the same Google account. Use this to switch to a different account for testing.',
+      [
+        { text: 'Cancel', style: 'cancel' },
+        { text: 'Sign out', onPress: async () => {
+          setSigningOut(true);
+          await clearAll();
+          setSigningOut(false);
+          onSignOut?.();
+        }},
+      ]
+    );
   }
 
   function confirmDelete() {
@@ -217,6 +240,9 @@ export default function SettingsScreen({ onBack, onDeleteAccount }) {
         <Section label="Account">
           {user && <Text style={s.detail}>User ID: {user.id?.slice(0,8)}…</Text>}
           {user && <Text style={s.detail}>Timezone: {user.timezone}</Text>}
+          <TouchableOpacity style={s.secondaryBtn} onPress={confirmSignOut} disabled={signingOut}>
+            {signingOut ? <ActivityIndicator color="#a5b4fc" /> : <Text style={s.secondaryBtnText}>Sign out</Text>}
+          </TouchableOpacity>
         </Section>
 
         <Section label="Data">

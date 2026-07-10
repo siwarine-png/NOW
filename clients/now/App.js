@@ -88,6 +88,7 @@ function App() {
       <SettingsScreen
         onBack={() => setScreen('today')}
         onDeleteAccount={() => { setUser(null); setScreen('onboarding'); }}
+        onSignOut={() => { setUser(null); setScreen('onboarding'); }}
       />
     );
   } else if (screen === 'now-focus') {
