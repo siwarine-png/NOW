@@ -1,6 +1,6 @@
 {
-  "name": "NOW",
-  "short_name": "NOW",
+  "name": "DESIRED: Identity to Reality",
+  "short_name": "DESIRED",
   "description": "What do I do right now?",
   "start_url": "./",
   "scope": "./",
