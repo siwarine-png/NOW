@@ -10,8 +10,25 @@ const { Router } = require('express');
 const sb = require('../db/client');
 const { AXES, isWithinSamplingWindow, isDue } = require('../engine/identityCheckin');
 const { nowMinutesInTz } = require('../engine/rules');
+const { suggestAxis } = require('../engine/groq');
 
 const router = Router();
+
+// POST /v2/identity-checkins/suggest-axis — "not sure" path. Groq-assisted
+// classification only, restricted to the same 6 axes and never written to
+// the DB itself -- the client still needs an explicit Accept, which hits
+// POST /v2/identity-checkins below just like a manual chip tap.
+router.post('/suggest-axis', async (req, res) => {
+  const { text } = req.body;
+  if (!text || !text.trim()) return res.status(400).json({ error: 'text required' });
+
+  try {
+    const axis = await suggestAxis(text.trim());
+    res.json({ axis });
+  } catch (e) {
+    res.status(502).json({ error: e.message });
+  }
+});
 
 // POST /v2/identity-checkins — record one "what are you doing right now" response
 router.post('/', async (req, res) => {

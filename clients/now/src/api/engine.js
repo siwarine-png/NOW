@@ -122,3 +122,10 @@ export async function getIdentityCheckinStatus(user_id) {
 export async function postIdentityCheckin(user_id, identity_axis) {
   return request('POST', '/identity-checkins', { user_id, identity_axis }, 'v2');
 }
+
+// "Not sure" path — Groq suggests which of the same 6 axes a free-text
+// description belongs to. Suggestion only; nothing is recorded until the
+// user taps Accept, which calls postIdentityCheckin above like any other pick.
+export async function suggestIdentityAxis(text) {
+  return request('POST', '/identity-checkins/suggest-axis', { text }, 'v2');
+}
