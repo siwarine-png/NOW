@@ -1,7 +1,8 @@
 /**
- * Rules Engine v1 — R1–R8, priority ordered, first match wins.
+ * Rules Engine v1 — priority ordered, first match wins.
  * Each rule is a { id, matches(ctx), build(ctx) } object.
  * ctx = { commitment, stats, energy, checkedInToday, nowMinutes }
+ * R1 (streak-protection framing) retired -- see R3's comment.
  */
 
 function timeToMinutes(t) {
@@ -84,26 +85,6 @@ const RULES = [
     },
   },
   {
-    id: 'R1_streak_at_risk',
-    // streak ≥ 3, no check-in today, window closes < 90 min
-    matches({ commitment: c, stats, checkedInToday, nowMin }) {
-      if (checkedInToday) return false;
-      if (stats.streak < 3) return false;
-      const ml = minutesLeft(c.window_end, nowMin, c.window_start);
-      return ml !== null && ml < 90 && ml > 0;
-    },
-    build({ commitment: c, stats, nowMin }) {
-      const ml = minutesLeft(c.window_end, nowMin, c.window_start);
-      return {
-        framing: 'streak',
-        action: c.next_action || `Start ${c.title}`,
-        message: `${stats.streak}-day streak on "${c.title}". Window closes in ${ml} min. Today's version: ${c.next_action || 'just start'}. That counts.`,
-        friction_reduction: '2-minute version',
-        why_this: `You've done this ${stats.streak} days running. Don't break the chain.`,
-      };
-    },
-  },
-  {
     id: 'R2_missed_yesterday',
     matches({ commitment: c, stats, checkedInToday }) {
       if (checkedInToday) return false;
@@ -120,12 +101,20 @@ const RULES = [
     },
   },
   {
+    // Was two rules: this one at <60min for everyone, plus R1_streak_at_risk
+    // at <90min but only if streak >= 3 ("don't break the chain" framing).
+    // Retired R1 rather than softening its language -- gating the earlier
+    // heads-up behind an existing streak meant someone on day one, or
+    // recovering from a miss, got *less* support than someone who'd already
+    // succeeded a few times running, which is backwards. Everyone gets the
+    // earlier <90min heads-up now, plain urgency framing, no streak count,
+    // no chain to protect or break.
     id: 'R3_window_closing',
     matches({ commitment: c, stats, checkedInToday, nowMin }) {
       if (checkedInToday) return false;
       if (!isWithinWindow(nowMin, c.window_start, c.window_end)) return false;
       const ml = minutesLeft(c.window_end, nowMin, c.window_start);
-      return ml !== null && ml < 60 && ml > 0;
+      return ml !== null && ml < 90 && ml > 0;
     },
     build({ commitment: c, stats, nowMin }) {
       const ml = minutesLeft(c.window_end, nowMin, c.window_start);

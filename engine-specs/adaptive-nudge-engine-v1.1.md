@@ -1,6 +1,7 @@
 # Adaptive Nudge Engine — MVP1 Spec
 
-**Version:** v1.1
+**Version:** v1.2
+**Changelog from v1.1:** removes `streak_counter` from `reward_style` (§2) and removes Momentum Score's "stretch/streak framing" allowance for high-M non-adherence domains (§3.5) — R17.4's flat-tone rule (no streak-breaking language, no loss framing) now applies universally, not just to adherence-class domains. Decided directly against the product's own stated values ("it's your life, not a game" — real progress has no reset button the way a broken streak implies): a streak counter contradicts the Momentum Score formula's own design, which deliberately never hard-resets on a miss (gentle asymmetric decay, §3.5) — showing a streak that snaps to zero would misrepresent what the underlying math already believes about the person's progress. This is also why the reasoning in the Adherence Addendum's R17.4 ("the population most in need is most sensitized to failure framing") was never actually adherence-specific — it generalizes.
 **Changelog from v1.0:** adds Section 3.5, Momentum Score — a bounded runtime signal that drives ongoing nudge frequency/difficulty after onboarding closes. Does not change Sections 1, 2, 4, or the stopping rules; `confidence_score` in the Nudge Profile is untouched and still means onboarding-window hit-rate.
 
 Scope: get the user opening the app reliably, capture that as a reusable profile, then immediately spend it on the real problem — forgetting medication.
@@ -47,7 +48,7 @@ Minimal schema — enough to reuse, not so much you're maintaining a research da
   "timing_window_minutes": 30,
   "notification_style": "friendly",       // direct | friendly
   "delivery_method": "push",              // push | widget | both
-  "reward_style": "streak_counter",       // streak_counter | none | affirming_message
+  "reward_style": "affirming_message",    // none | affirming_message (streak_counter removed, v1.2 — see changelog)
   "confidence_score": 0.83,               // hit-rate over test window
   "established_at": "2026-07-09",
   "last_validated_at": "2026-07-09",
@@ -97,9 +98,11 @@ M(t+1) = M(t) + α · (1 − M(t)) · x(t) − δ · (1 − x(t))
 |---|---|---|
 | Low (0.0–0.3) | Higher — re-establish the habit with easy wins | Keep ask minimal, no stretch framing |
 | Mid (0.3–0.7) | Standard, shifted just-in-time (closer to the anchor moment) | Normal |
-| High (0.7–1.0) | Lower — avoid over-prompting a habit that's sticking | Room for stretch/streak framing (non-adherence domains only — see below) |
+| High (0.7–1.0) | Lower — avoid over-prompting a habit that's sticking | Normal — **not** stretch/streak framing (v1.2: removed universally, not just for adherence; see below) |
 
-**Adherence-domain constraint:** for the medication behavior specifically, `M` may only ever affect *timing/frequency* of the reminder, never the underlying regimen (dose, window, whether the reminder fires at all on a given day). This mirrors the immutability boundary used elsewhere for adherence — the momentum layer adapts delivery, not the prescribed action. Framing must also stay flat regardless of `M` for medication (no streak language, win or lose) — same tone-neutrality reasoning as failure-mode messaging generally, since this is the population most sensitized to it.
+**Framing stays flat regardless of `M`, for every domain, not just adherence.** v1.1 only required this for medication (mirroring the Adherence Addendum's R17.4). v1.2 generalizes it: no streak language, no "don't break the chain," no loss framing anywhere `M` is high, win or lose. Two reasons. First, R17.4's own rationale — "the population most in need of support is disproportionately the population most sensitized to failure framing" — was never actually specific to medication; it applies to habit-formation generally. Second, and more structurally: a streak counter directly contradicts what `M`'s own formula believes. `M` is built to *never* hard-reset on a miss — `δ` decays gently, `(1−M)` caps growth, one bad day doesn't erase a week. A literal streak display does the opposite: one miss and it announces zero. Keeping both would mean the UI actively misrepresents the math underneath it.
+
+**Adherence-domain constraint (unchanged from v1.1):** for the medication behavior specifically, `M` may only ever affect *timing/frequency* of the reminder, never the underlying regimen (dose, window, whether the reminder fires at all on a given day). This mirrors the immutability boundary used elsewhere for adherence — the momentum layer adapts delivery, not the prescribed action.
 
 **What it explicitly does not do:**
 - It does not replace or feed into `confidence_score` — that field stays a static onboarding artifact.

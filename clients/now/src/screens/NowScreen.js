@@ -312,7 +312,6 @@ function formatNextAt(nextAt) {
 
 function ruleLabel(ruleId) {
   const map = {
-    R1_streak_at_risk:    '🔥 Streak at risk',
     R2_missed_yesterday:  '↩ Never miss twice',
     R3_window_closing:    '⏱ Window closing',
     R4_ambiguous_action:  '❓ Clarify first step',

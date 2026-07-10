@@ -5,7 +5,7 @@
  *   0.30 * missed_yesterday
  * + 0.20 * (1 - completion_rate_14d)
  * + 0.20 * window_pressure          // 1 - time_left/window_length, 0 outside window
- * + 0.15 * streak_fragility         // 1 if streak in [1,3]
+ * + 0.15 * new_habit_support         // 1 if streak in [1,3] -- still forming, benefits from more support
  * + 0.15 * deadline_pressure        // max(0, 1 - hours_to_deadline/72)
  * )
  */
@@ -43,8 +43,11 @@ function scoreRisk(c, stats) {
     }
   }
 
-  // streak fragility: 1 if streak is 1–3 (worth protecting, risk of breaking)
-  const streakFragility = streak >= 1 && streak <= 3 ? 1 : 0;
+  // A habit that's 1-3 days in is still forming, not yet a stable pattern --
+  // this is the same "still early, deserves more support" signal the Nudge
+  // Engine's Momentum Score uses (low M -> higher nudge frequency), not a
+  // "streak worth protecting from breaking" framing.
+  const newHabitSupport = streak >= 1 && streak <= 3 ? 1 : 0;
 
   // deadline pressure: 1 if deadline < 72h away, scales linearly
   let deadlinePressure = 0;
@@ -57,16 +60,16 @@ function scoreRisk(c, stats) {
     missed_yesterday:     missedYesterday ? 1 : 0,
     low_completion:       1 - (completionRate14d ?? 1),
     window_pressure:      windowPressure,
-    streak_fragility:     streakFragility,
+    new_habit_support:    newHabitSupport,
     deadline_pressure:    deadlinePressure,
   };
 
   const weights = {
-    missed_yesterday:  0.30,
-    low_completion:    0.20,
-    window_pressure:   0.20,
-    streak_fragility:  0.15,
-    deadline_pressure: 0.15,
+    missed_yesterday:   0.30,
+    low_completion:     0.20,
+    window_pressure:    0.20,
+    new_habit_support:  0.15,
+    deadline_pressure:  0.15,
   };
 
   const score = clamp01(
