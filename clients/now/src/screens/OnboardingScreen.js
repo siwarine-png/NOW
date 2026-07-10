@@ -401,7 +401,7 @@ const s = StyleSheet.create({
   // screen with no scrolling, so this trims vertical space everywhere
   // (smaller title/hint, tighter row padding, smaller +/- buttons) rather
   // than reusing the roomier styles the other steps use.
-  identityScreen: { flex: 1, backgroundColor: '#0f172a', padding: 24, paddingTop: 40, justifyContent: 'center' },
+  identityScreen: { flex: 1, backgroundColor: '#0f172a', padding: 24, paddingTop: 40, justifyContent: 'center', alignItems: 'center' },
   stepLabelCompact: { fontSize: 11, fontWeight: '700', color: '#6366f1', letterSpacing: 1, textTransform: 'uppercase', marginBottom: 12, textAlign: 'center' },
   titleCompact: { fontSize: 25, fontWeight: '900', color: '#fff', textAlign: 'center', lineHeight: 30, marginBottom: 8 },
   hintCompact: { fontSize: 13, color: '#64748b', marginBottom: 18, textAlign: 'center' },
