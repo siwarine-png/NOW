@@ -327,18 +327,18 @@ export default function OnboardingScreen({ onComplete }) {
   );
 
   if (step === STEP_IDENTITY) return (
-    <ScrollView contentContainerStyle={s.centerScroll}>
-      <Text style={s.stepLabel}>Step 4 of {TOTAL_STEPS}</Text>
-      <Text style={s.title}>What matters most{'\n'}to you right now?</Text>
-      <Text style={s.hint}>Tap + or − for each. No wrong answer.</Text>
+    <View style={s.identityScreen}>
+      <Text style={s.stepLabelCompact}>Step 4 of {TOTAL_STEPS}</Text>
+      <Text style={s.titleCompact}>What matters most to you right now?</Text>
+      <Text style={s.hintCompact}>Tap + or − for each. No wrong answer.</Text>
 
-      <View style={s.priorityList}>
+      <View style={s.priorityListCompact}>
         {IDENTITY_AXES.map(axis => (
-          <View key={axis.key} style={s.priorityRow}>
+          <View key={axis.key} style={s.priorityRowCompact}>
             <Text style={s.priorityLabel}>{axis.label}</Text>
             <View style={s.priorityControl}>
               <TouchableOpacity
-                style={s.priorityBtn}
+                style={s.priorityBtnCompact}
                 disabled={identityPriorities[axis.key] <= 1}
                 onPress={() => adjustPriority(axis.key, -1)}
               >
@@ -350,7 +350,7 @@ export default function OnboardingScreen({ onComplete }) {
                 ))}
               </View>
               <TouchableOpacity
-                style={s.priorityBtn}
+                style={s.priorityBtnCompact}
                 disabled={identityPriorities[axis.key] >= 5}
                 onPress={() => adjustPriority(axis.key, 1)}
               >
@@ -361,10 +361,10 @@ export default function OnboardingScreen({ onComplete }) {
         ))}
       </View>
 
-      <TouchableOpacity style={[s.btn, loading && s.btnDisabled]} disabled={loading} onPress={finish}>
+      <TouchableOpacity style={[s.btn, s.btnCompact, loading && s.btnDisabled]} disabled={loading} onPress={finish}>
         {loading ? <ActivityIndicator color="#fff" /> : <Text style={s.btnText}>Finish →</Text>}
       </TouchableOpacity>
-    </ScrollView>
+    </View>
   );
 
   return null;
@@ -391,13 +391,22 @@ const s = StyleSheet.create({
   chip: { backgroundColor: '#1e293b', borderRadius: 20, paddingVertical: 10, paddingHorizontal: 16, borderWidth: 1, borderColor: '#334155' },
   chipText: { color: '#f1f5f9', fontSize: 14, fontWeight: '600' },
   customAnchorRow: { alignItems: 'center', marginTop: 4 },
-  priorityList: { width: '100%', maxWidth: 340, marginBottom: 24 },
-  priorityRow: { flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center', paddingVertical: 12, borderBottomWidth: 1, borderBottomColor: '#1e293b' },
-  priorityLabel: { fontSize: 15, fontWeight: '700', color: '#f1f5f9' },
-  priorityControl: { flexDirection: 'row', alignItems: 'center', gap: 10 },
-  priorityBtn: { width: 30, height: 30, borderRadius: 15, backgroundColor: '#1e293b', borderWidth: 1, borderColor: '#334155', alignItems: 'center', justifyContent: 'center' },
+  priorityLabel: { fontSize: 14, fontWeight: '700', color: '#f1f5f9' },
+  priorityControl: { flexDirection: 'row', alignItems: 'center', gap: 8 },
   priorityBtnText: { color: '#818cf8', fontSize: 16, fontWeight: '800' },
   priorityDots: { flexDirection: 'row', gap: 4 },
   priorityDot: { width: 8, height: 8, borderRadius: 4, backgroundColor: '#1e293b', borderWidth: 1, borderColor: '#334155' },
   priorityDotFilled: { backgroundColor: '#6366f1', borderColor: '#6366f1' },
+  // Compact variants for Step 4 specifically -- 6 rows need to fit one
+  // screen with no scrolling, so this trims vertical space everywhere
+  // (smaller title/hint, tighter row padding, smaller +/- buttons) rather
+  // than reusing the roomier styles the other steps use.
+  identityScreen: { flex: 1, backgroundColor: '#0f172a', padding: 24, paddingTop: 44, justifyContent: 'center' },
+  stepLabelCompact: { fontSize: 10, fontWeight: '700', color: '#6366f1', letterSpacing: 1, textTransform: 'uppercase', marginBottom: 8, textAlign: 'center' },
+  titleCompact: { fontSize: 20, fontWeight: '900', color: '#fff', textAlign: 'center', lineHeight: 25, marginBottom: 4 },
+  hintCompact: { fontSize: 12, color: '#64748b', marginBottom: 14, textAlign: 'center' },
+  priorityListCompact: { width: '100%' },
+  priorityRowCompact: { flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center', paddingVertical: 7, borderBottomWidth: 1, borderBottomColor: '#1e293b' },
+  priorityBtnCompact: { width: 26, height: 26, borderRadius: 13, backgroundColor: '#1e293b', borderWidth: 1, borderColor: '#334155', alignItems: 'center', justifyContent: 'center' },
+  btnCompact: { marginTop: 16, padding: 13 },
 });
