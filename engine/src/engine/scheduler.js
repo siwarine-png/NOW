@@ -203,6 +203,7 @@ function startScheduler() {
     runSchedulerTick().catch(e => console.error('[scheduler] tick error', e.message));
     runPushReminderTick().catch(e => console.error('[scheduler] push tick error', e.message));
     require('./nudgeEngine').runNudgeTestsTick(sb).catch(e => console.error('[scheduler] nudge tick error', e.message));
+    require('./identityCheckin').runIdentityCheckinTick().catch(e => console.error('[scheduler] identity checkin tick error', e.message));
   });
   console.log('[scheduler] started — 5-min tick');
 }

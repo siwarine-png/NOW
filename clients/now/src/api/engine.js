@@ -12,8 +12,8 @@ const HEADERS = {
   Authorization: `Bearer ${ENGINE_KEY}`,
 };
 
-async function request(method, path, body) {
-  const res = await fetch(`${ENGINE_URL}/v1${path}`, {
+async function request(method, path, body, version = 'v1') {
+  const res = await fetch(`${ENGINE_URL}/${version}${path}`, {
     method,
     headers: HEADERS,
     body: body ? JSON.stringify(body) : undefined,
@@ -109,4 +109,16 @@ export async function postEquivalentCheckin(equivalent_id, result, energy = null
     energy,
     context: { source: 'now_app' },
   });
+}
+
+// ── Identity check-ins (Adaptive Allocation Engine's experience-sampling
+// window, engine/src/engine/identityCheckin.js) — mounted under /v2, not
+// /v1, per the v1 endpoint-count freeze (MVP1-SPEC-v3.md). ─────────────────
+export async function getIdentityCheckinStatus(user_id) {
+  const params = new URLSearchParams({ user_id });
+  return request('GET', `/identity-checkins/status?${params}`, undefined, 'v2');
+}
+
+export async function postIdentityCheckin(user_id, identity_axis) {
+  return request('POST', '/identity-checkins', { user_id, identity_axis }, 'v2');
 }

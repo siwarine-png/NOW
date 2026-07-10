@@ -12,8 +12,9 @@
  */
 import React, { useState, useEffect, useCallback } from 'react';
 import { View, Text, TouchableOpacity, StyleSheet, ActivityIndicator, ScrollView, AppState } from 'react-native';
-import { getInterventionNow, getTodaySchedule, postCheckin } from '../api/engine';
+import { getInterventionNow, getTodaySchedule, postCheckin, getIdentityCheckinStatus } from '../api/engine';
 import { enqueue } from '../store/queue';
+import IdentityCheckinPrompt, { shouldShowIdentityCheckin } from '../components/IdentityCheckinPrompt';
 
 function greeting() {
   const h = new Date().getHours();
@@ -75,6 +76,7 @@ export default function TodayScreen({ user, onOpenNow, onSettings }) {
   const [schedule, setSchedule] = useState(null);
   const [loading, setLoading] = useState(true);
   const [acting, setActing] = useState(false);
+  const [checkinDue, setCheckinDue] = useState(false);
 
   const load = useCallback(async () => {
     if (!user) return;
@@ -85,6 +87,13 @@ export default function TodayScreen({ user, onOpenNow, onSettings }) {
       setSchedule(today);
     } catch { /* keep whatever was last shown rather than a broken empty screen */ }
     finally { setLoading(false); }
+
+    // Best-effort, separate from the main load so a failure here never
+    // blocks the actual home screen -- this is a sampling signal, not core.
+    try {
+      const [status, locallyOk] = await Promise.all([getIdentityCheckinStatus(user.id), shouldShowIdentityCheckin()]);
+      setCheckinDue(!!status?.due && locallyOk);
+    } catch { /* stay silent, this is optional data collection */ }
   }, [user]);
 
   useEffect(() => { load(); }, [load]);
@@ -148,6 +157,12 @@ export default function TodayScreen({ user, onOpenNow, onSettings }) {
           </>
         )}
       </ScrollView>
+
+      <IdentityCheckinPrompt
+        visible={checkinDue}
+        user={user}
+        onDone={() => setCheckinDue(false)}
+      />
     </View>
   );
 }

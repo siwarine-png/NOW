@@ -93,6 +93,7 @@ router.post('/scheduler-tick', async (req, res) => {
     await runSchedulerTick();
     await runPushReminderTick();
     await nudgeEngine.runNudgeTestsTick(sb);
+    await require('../engine/identityCheckin').runIdentityCheckinTick();
     res.json({ ok: true, ts: new Date().toISOString() });
   } catch (e) {
     res.status(500).json({ ok: false, error: e.message });

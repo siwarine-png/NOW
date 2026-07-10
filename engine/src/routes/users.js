@@ -37,7 +37,11 @@ router.post('/', async (req, res) => {
     // in onboarding captures quiet hours separately yet.
     .upsert({ app_id: req.app_id, external_ref, timezone: timezone || 'UTC',
                wake_time: wt, sleep_time: st, quiet_start: st, quiet_end: wt, checkin_time: ct,
-               ...(identity_priorities ? { identity_priorities } : {}) },
+               ...(identity_priorities ? { identity_priorities } : {}),
+               // Only a genuinely new user starts the 7-day identity-checkin
+               // sampling window -- same re-login guard as domain seeding
+               // and the app-open nudge test just below.
+               ...(isNewUser ? { identity_checkin_started_at: new Date().toISOString() } : {}) },
              { onConflict: 'app_id,external_ref' })
     .select()
     .single();
