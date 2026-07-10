@@ -1,9 +1,10 @@
 /**
  * NOW app root — Onboarding (first launch), then a persistent bottom nav
- * with exactly 2 tabs ("I'm Stuck" = add a new pain point any time, "Now" =
- * the day's shape) visible on every post-onboarding screen. Tapping Today's
- * highlighted card drills into the focused single-action view on top of
- * the "Now" tab; Settings is reached from there.
+ * with 3 tabs ("I'm Stuck" = momentary unsticking triage, "Now" = the
+ * day's shape, "Identity" = the allocation spectrum) visible on every
+ * post-onboarding screen. Tapping Today's highlighted card drills into the
+ * focused single-action view on top of the "Now" tab; Settings is reached
+ * from there.
  * No navigation library needed at this scale — simple state machine.
  */
 import React, { useState, useEffect } from 'react';
@@ -17,6 +18,7 @@ import TodayScreen from './src/screens/TodayScreen';
 import NowScreen from './src/screens/NowScreen';
 import SettingsScreen from './src/screens/SettingsScreen';
 import AddPainPointScreen from './src/screens/AddPainPointScreen';
+import StuckScreen from './src/screens/StuckScreen';
 import IdentityScreen from './src/screens/IdentityScreen';
 import BottomNav from './src/components/BottomNav';
 
@@ -44,8 +46,11 @@ class ErrorBoundary extends React.Component {
 
 // "now" covers both the Today dashboard and its focused single-action
 // drill-in -- both belong to the "Now" tab, just one level of navigation
-// apart. "stuck" and "settings" are their own top-level screens.
+// apart. "stuck" and "stuck-new" both belong to the "I'm Stuck" tab
+// (triage first, "register something new" is one level in); "settings"
+// is its own top-level screen.
 const NOW_TAB_SCREENS = ['today', 'now-focus'];
+const STUCK_TAB_SCREENS = ['stuck', 'stuck-new'];
 
 function App() {
   const [screen, setScreen] = useState('loading');
@@ -88,6 +93,8 @@ function App() {
   } else if (screen === 'now-focus') {
     content = <NowScreen user={user} onSettings={() => setScreen('settings')} onBack={() => setScreen('today')} />;
   } else if (screen === 'stuck') {
+    content = <StuckScreen user={user} onAddNew={() => setScreen('stuck-new')} />;
+  } else if (screen === 'stuck-new') {
     content = <AddPainPointScreen user={user} onCreated={() => setScreen('today')} />;
   } else if (screen === 'identity') {
     content = <IdentityScreen user={user} onBack={() => setScreen('today')} />;
@@ -101,7 +108,7 @@ function App() {
       <View style={s.appRoot}>
         <View style={s.content}>{content}</View>
         <BottomNav
-          active={screen === 'stuck' ? 'stuck' : screen === 'identity' ? 'identity' : NOW_TAB_SCREENS.includes(screen) ? 'now' : null}
+          active={STUCK_TAB_SCREENS.includes(screen) ? 'stuck' : screen === 'identity' ? 'identity' : NOW_TAB_SCREENS.includes(screen) ? 'now' : null}
           onStuck={() => setScreen('stuck')}
           onNow={() => setScreen('today')}
           onIdentity={() => setScreen('identity')}

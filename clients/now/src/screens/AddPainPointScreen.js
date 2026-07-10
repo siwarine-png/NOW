@@ -1,8 +1,10 @@
 /**
- * "I'm Stuck" tab — add a new pain point at any time, not just once at
- * onboarding. Same shape as the pain-point question in OnboardingScreen
- * (medicine vs. something else vs. a chosen time), just reachable again
- * later via POST /commitments directly instead of only at registration.
+ * "Something new to track" — reached via the secondary link at the bottom
+ * of StuckScreen (the "I'm Stuck" tab's primary action is now a momentary
+ * unsticking triage, not this). Same shape as the pain-point question in
+ * OnboardingScreen (medicine vs. something else vs. a chosen time), just
+ * reachable again later via POST /commitments directly instead of only at
+ * registration.
  *
  * STEP_AXIS (custom path only) tags the new commitment with an Adaptive
  * Allocation Engine identity_axis (migration 016) -- one tap, no typing.

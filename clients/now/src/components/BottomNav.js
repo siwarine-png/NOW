@@ -1,8 +1,9 @@
 /**
  * Persistent bottom tab bar, visible on every post-onboarding screen.
- * 3 tabs: "I'm Stuck" (add a new pain point, any time -- not just once at
- * onboarding), "Now" (the day's shape -- TodayScreen), and "Identity" (the
- * Adaptive Allocation Engine's spectrum reflection -- IdentityScreen).
+ * 3 tabs: "I'm Stuck" (momentary unsticking triage -- StuckScreen; adding a
+ * new pain point to track is one level in from there), "Now" (the day's
+ * shape -- TodayScreen), and "Identity" (the Adaptive Allocation Engine's
+ * spectrum reflection -- IdentityScreen).
  */
 import React from 'react';
 import { View, Text, TouchableOpacity, StyleSheet } from 'react-native';
