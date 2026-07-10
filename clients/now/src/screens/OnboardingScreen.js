@@ -7,11 +7,17 @@
  * daily time. Zero typing required; "Something else" is the one optional
  * exception, same as the spec allows for Q1.
  *
- * STEP_IDENTITY (after the nudge-timing steps, before the pain point) seeds
- * the Adaptive Allocation Engine's identity spectrum -- relative priority
- * (1-5, tap +/- only, no typing) per want axis, not precise hour targets.
- * This is a proxy for desired_hours_per_week until the Allocation Engine
- * itself exists to translate it; see migration 014_identity_priorities.sql.
+ * STEP_IDENTITY (after the nudge-timing steps) seeds the Adaptive Allocation
+ * Engine's identity spectrum -- relative priority (1-5, tap +/- only, no
+ * typing) per want axis, not precise hour targets. This is a proxy for
+ * desired_hours_per_week until the Allocation Engine itself exists to
+ * translate it; see migration 014_identity_priorities.sql. It's also the
+ * last onboarding step now -- the old pain-point question (Step 5) was
+ * removed as redundant with "I'm Stuck" (AddPainPointScreen), which asks
+ * the identical question at the moment someone actually needs it, not
+ * hypothetically before they've used the app at all. Registering with no
+ * pain_point_type falls through to the same "not sure yet" default
+ * (seedDomainsForUser) the picker's third option used to call explicitly.
  */
 import React, { useState, useEffect } from 'react';
 import {
@@ -32,8 +38,7 @@ const STEP_ANCHOR = 1;
 const STEP_ENERGY = 2;
 const STEP_CONFIRM_TIME = 3;
 const STEP_IDENTITY = 4;
-const STEP_PAINPOINT = 5;
-const TOTAL_STEPS = 5;
+const TOTAL_STEPS = 4;
 
 // Mirrors engine/src/engine/nudgeEngine.js's ANCHOR_TIMES -- kept in sync by
 // hand since it's a small, stable display default, not logic the client
@@ -71,6 +76,16 @@ const IDENTITY_AXES = [
   { key: 'recreation', label: 'Recreation' },
 ];
 const DEFAULT_IDENTITY_PRIORITIES = { relationships: 3, achievement: 3, finance: 3, contribution: 3, recreation: 3 };
+
+// Foundation gets a status question, not a priority weight -- "how much do
+// you want this" doesn't apply to sleep/meals/movement the way it does to
+// the five want axes above. This just tells the Allocation Engine's gap
+// tracking (v1.3) whether to start Foundation's flex-hour competition
+// assuming a real gap from week one, instead of guessing cold.
+const FOUNDATION_STATUS_OPTIONS = [
+  { key: 'solid', label: "It's solid" },
+  { key: 'rebuilding', label: 'I need to rebuild it' },
+];
 
 // Accepts "630", "1830", "6", "18:30" etc. and normalizes to "HH:MM" — no ":"
 // key needed. 1-2 digits = hour only ("6" -> 06:00); 3-4 digits = hour+minutes,
@@ -139,11 +154,8 @@ export default function OnboardingScreen({ onComplete }) {
   const [pickingTime, setPickingTime] = useState(false);
   const [customTime, setCustomTime] = useState('');
 
-  const [painPointType, setPainPointType] = useState(null);
-  const [showCustomPainPoint, setShowCustomPainPoint] = useState(false);
-  const [customPainPoint, setCustomPainPoint] = useState('');
-
   const [identityPriorities, setIdentityPriorities] = useState(DEFAULT_IDENTITY_PRIORITIES);
+  const [foundationStatus, setFoundationStatus] = useState(null);
 
   function adjustPriority(axisKey, delta) {
     setIdentityPriorities(p => ({ ...p, [axisKey]: Math.max(1, Math.min(5, p[axisKey] + delta)) }));
@@ -167,11 +179,12 @@ export default function OnboardingScreen({ onComplete }) {
     setStep(STEP_CONFIRM_TIME);
   }
 
-  // Start with the pain point, not the generic domain library: pain_point_type
-  // becomes one real, immediately-actionable commitment server-side (see
-  // engine/src/routes/users.js) -- the 5-domain starter set is now an
-  // explicit "not sure yet" fallback, not the default for everyone.
-  async function finish(painPoint, painPointTitle) {
+  // No pain-point question here anymore -- with no pain_point_type sent,
+  // engine/src/routes/users.js falls through to seedDomainsForUser, the same
+  // "not sure yet" default the old picker's third option called explicitly.
+  // A real pain point is captured later, from "I'm Stuck", at the moment
+  // someone actually has one -- not guessed at during onboarding.
+  async function finish() {
     setLoading(true);
     try {
       const tz = Intl.DateTimeFormat().resolvedOptions().timeZone || 'UTC';
@@ -185,9 +198,7 @@ export default function OnboardingScreen({ onComplete }) {
         anchor_time: anchorTime,
         energy_window: energyWindow,
         delivery_method: 'push',
-        pain_point_type: painPoint,
-        pain_point_title: painPointTitle,
-        identity_priorities: identityPriorities,
+        identity_priorities: { ...identityPriorities, foundation_status: foundationStatus || 'solid' },
       });
       await setUser(user);
       await markOnboarded();
@@ -323,7 +334,27 @@ export default function OnboardingScreen({ onComplete }) {
   if (step === STEP_IDENTITY) return (
     <ScrollView contentContainerStyle={s.centerScroll}>
       <Text style={s.stepLabel}>Step 4 of {TOTAL_STEPS}</Text>
-      <Text style={s.title}>What matters most{'\n'}to you right now?</Text>
+      <Text style={s.title}>Where are you{'\n'}starting from?</Text>
+
+      <View style={s.priorityList}>
+        <View style={s.priorityRow}>
+          <Text style={s.priorityLabel}>Foundation</Text>
+          <Text style={s.foundationHint}>sleep, meals, movement</Text>
+        </View>
+        <View style={s.foundationOptions}>
+          {FOUNDATION_STATUS_OPTIONS.map(opt => (
+            <TouchableOpacity
+              key={opt.key}
+              style={[s.foundationOptionBtn, foundationStatus === opt.key && s.foundationOptionBtnActive]}
+              onPress={() => setFoundationStatus(opt.key)}
+            >
+              <Text style={[s.foundationOptionText, foundationStatus === opt.key && s.foundationOptionTextActive]}>{opt.label}</Text>
+            </TouchableOpacity>
+          ))}
+        </View>
+      </View>
+
+      <Text style={[s.title, { fontSize: 20, marginTop: 8 }]}>What matters most{'\n'}to you right now?</Text>
       <Text style={s.hint}>Tap + or − for each. No wrong answer.</Text>
 
       <View style={s.priorityList}>
@@ -355,52 +386,10 @@ export default function OnboardingScreen({ onComplete }) {
         ))}
       </View>
 
-      <TouchableOpacity style={s.btn} onPress={() => setStep(STEP_PAINPOINT)}>
-        <Text style={s.btnText}>Continue →</Text>
+      <TouchableOpacity style={[s.btn, loading && s.btnDisabled]} disabled={loading} onPress={finish}>
+        {loading ? <ActivityIndicator color="#fff" /> : <Text style={s.btnText}>Finish →</Text>}
       </TouchableOpacity>
     </ScrollView>
-  );
-
-  if (step === STEP_PAINPOINT) return (
-    <View style={s.center}>
-      <Text style={s.stepLabel}>Step 5 of {TOTAL_STEPS}</Text>
-      <Text style={s.title}>What's the one thing{'\n'}you want help with{'\n'}right now?</Text>
-
-      {!showCustomPainPoint ? (
-        <>
-          <TouchableOpacity
-            style={[s.btn, loading && s.btnDisabled]} disabled={loading}
-            onPress={() => { setPainPointType('medicine'); finish('medicine'); }}
-          >
-            {loading ? <ActivityIndicator color="#fff" /> : <Text style={s.btnText}>Remembering medicine</Text>}
-          </TouchableOpacity>
-          <TouchableOpacity style={s.linkBtn} onPress={() => setShowCustomPainPoint(true)} disabled={loading}>
-            <Text style={s.linkBtnText}>Something else</Text>
-          </TouchableOpacity>
-          <TouchableOpacity style={s.linkBtn} onPress={() => finish('unsure')} disabled={loading}>
-            <Text style={s.linkBtnText}>Not sure yet — show me some starting points</Text>
-          </TouchableOpacity>
-        </>
-      ) : (
-        <>
-          <TextInput
-            style={s.input}
-            value={customPainPoint}
-            onChangeText={setCustomPainPoint}
-            placeholder="e.g. finishing my taxes"
-            placeholderTextColor="#475569"
-            autoFocus
-          />
-          <TouchableOpacity
-            style={[s.btn, (!customPainPoint.trim() || loading) && s.btnDisabled]}
-            disabled={!customPainPoint.trim() || loading}
-            onPress={() => finish('custom', customPainPoint.trim())}
-          >
-            {loading ? <ActivityIndicator color="#fff" /> : <Text style={s.btnText}>Continue →</Text>}
-          </TouchableOpacity>
-        </>
-      )}
-    </View>
   );
 
   return null;
@@ -436,4 +425,10 @@ const s = StyleSheet.create({
   priorityDots: { flexDirection: 'row', gap: 4 },
   priorityDot: { width: 8, height: 8, borderRadius: 4, backgroundColor: '#1e293b', borderWidth: 1, borderColor: '#334155' },
   priorityDotFilled: { backgroundColor: '#6366f1', borderColor: '#6366f1' },
+  foundationHint: { fontSize: 11, color: '#64748b' },
+  foundationOptions: { flexDirection: 'row', gap: 10, paddingVertical: 10 },
+  foundationOptionBtn: { flex: 1, paddingVertical: 10, borderRadius: 10, borderWidth: 1, borderColor: '#334155', backgroundColor: '#1e293b', alignItems: 'center' },
+  foundationOptionBtnActive: { borderColor: '#6366f1', backgroundColor: '#312e81' },
+  foundationOptionText: { fontSize: 13, fontWeight: '700', color: '#94a3b8' },
+  foundationOptionTextActive: { color: '#e0e7ff' },
 });
