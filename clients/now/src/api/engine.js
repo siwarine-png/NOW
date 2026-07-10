@@ -119,13 +119,25 @@ export async function getIdentityCheckinStatus(user_id) {
   return request('GET', `/identity-checkins/status?${params}`, undefined, 'v2');
 }
 
-export async function postIdentityCheckin(user_id, identity_axis) {
-  return request('POST', '/identity-checkins', { user_id, identity_axis }, 'v2');
+// is_fixed is optional -- pass it only when it's actually known (the "Not
+// sure" path's Groq classification); omit it for a manual chip tap and the
+// server infers what it can from currently-active commitments instead.
+export async function postIdentityCheckin(user_id, identity_axis, is_fixed) {
+  return request('POST', '/identity-checkins', { user_id, identity_axis, ...(typeof is_fixed === 'boolean' ? { is_fixed } : {}) }, 'v2');
 }
 
 // "Not sure" path — Groq suggests which of the same 6 axes a free-text
-// description belongs to. Suggestion only; nothing is recorded until the
-// user taps Accept, which calls postIdentityCheckin above like any other pick.
+// description belongs to, plus whether it sounds fixed or flexible.
+// Suggestion only; nothing is recorded until the user taps Accept, which
+// calls postIdentityCheckin above like any other pick.
 export async function suggestIdentityAxis(text) {
   return request('POST', '/identity-checkins/suggest-axis', { text }, 'v2');
+}
+
+// Real current_hours_per_week per axis, computed from recorded check-ins —
+// powers the Identity tab (desired_hours_per_week is still a placeholder
+// there; the allocation engine that computes it isn't built).
+export async function getIdentitySpectrum(user_id) {
+  const params = new URLSearchParams({ user_id });
+  return request('GET', `/identity-checkins/spectrum?${params}`, undefined, 'v2');
 }

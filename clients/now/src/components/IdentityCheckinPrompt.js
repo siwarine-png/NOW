@@ -21,12 +21,15 @@
  * moment.
  *
  * "Not sure" is a decision-support detour, not a 7th axis: type what you're
- * doing, Groq suggests which of the same 6 axes it fits (engine/src/engine/
- * groq.js). Accept doesn't record anything by itself -- it merges the
- * suggestion into the selection and slides back to the chip picker, where
- * it shows up highlighted like any manually-tapped axis, so "Log ... ->" on
- * that screen is the one place anything is actually confirmed and recorded.
- * Reject it and you land on the same picker with nothing added.
+ * doing, Groq suggests which of the same 6 axes it fits, plus whether it
+ * sounds fixed/non-negotiable or flexible (engine/src/engine/groq.js) -- the
+ * fixed/flexible read only ever comes from here, a manual chip tap has no
+ * such signal and the server infers what it can instead. Accept doesn't
+ * record anything by itself -- it merges the suggestion into the selection
+ * and slides back to the chip picker, where it shows up highlighted like
+ * any manually-tapped axis, so "Log ... ->" on that screen is the one place
+ * anything is actually confirmed and recorded. Reject it and you land on
+ * the same picker with nothing added.
  */
 import React, { useState } from 'react';
 import { View, Text, TextInput, TouchableOpacity, StyleSheet, Modal, ActivityIndicator } from 'react-native';
@@ -66,14 +69,21 @@ export default function IdentityCheckinPrompt({ visible, user, onDone }) {
   const [text, setText] = useState('');
   const [suggesting, setSuggesting] = useState(false);
   const [suggestedAxis, setSuggestedAxis] = useState(null);
+  const [suggestedIsFixed, setSuggestedIsFixed] = useState(null);
   const [suggestError, setSuggestError] = useState(false);
+  // Only the Groq path ever knows fixed/flexible -- a manual chip tap has no
+  // signal here and the server infers what it can instead. Keyed by axis so
+  // it survives a Groq-suggested axis being combined with a manual one.
+  const [isFixedByAxis, setIsFixedByAxis] = useState({});
 
   function reset() {
     setStage(STAGE_PICK);
     setSelected([]);
     setText('');
     setSuggestedAxis(null);
+    setSuggestedIsFixed(null);
     setSuggestError(false);
+    setIsFixedByAxis({});
   }
 
   function toggleAxis(axisKey) {
@@ -90,7 +100,7 @@ export default function IdentityCheckinPrompt({ visible, user, onDone }) {
     setSaving(true);
     try {
       for (const axisKey of axesArr) {
-        await postIdentityCheckin(user.id, axisKey);
+        await postIdentityCheckin(user.id, axisKey, isFixedByAxis[axisKey]);
       }
     } catch (e) {
       // Best-effort — this is a sampling signal, not a critical write. A
@@ -113,8 +123,9 @@ export default function IdentityCheckinPrompt({ visible, user, onDone }) {
     setSuggesting(true);
     setSuggestError(false);
     try {
-      const { axis } = await suggestIdentityAxis(text.trim());
+      const { axis, is_fixed } = await suggestIdentityAxis(text.trim());
       setSuggestedAxis(axis);
+      setSuggestedIsFixed(is_fixed);
       setStage(STAGE_SUGGESTED);
     } catch (e) {
       setSuggestError(true);
@@ -131,9 +142,11 @@ export default function IdentityCheckinPrompt({ visible, user, onDone }) {
   function acceptSuggestion() {
     const combined = Array.from(new Set([...selected, suggestedAxis])).slice(0, MAX_AXES);
     setSelected(combined);
+    setIsFixedByAxis(prev => ({ ...prev, [suggestedAxis]: suggestedIsFixed }));
     setStage(STAGE_PICK);
     setText('');
     setSuggestedAxis(null);
+    setSuggestedIsFixed(null);
     setSuggestError(false);
   }
 
@@ -141,6 +154,7 @@ export default function IdentityCheckinPrompt({ visible, user, onDone }) {
     setStage(STAGE_PICK);
     setText('');
     setSuggestedAxis(null);
+    setSuggestedIsFixed(null);
     setSuggestError(false);
   }
 

@@ -3,12 +3,14 @@
  * spectrum (see engine-specs/adaptive-allocation-engine-v1.1.md §2.3/§4):
  * desired vs. actually-measured hours per axis, and the gap between them.
  *
- * MOCK DATA NOTE: the Allocation Engine itself isn't built server-side yet
- * (spec only, as of v1.2) — there's no `/v1/identity` endpoint to call. This
- * screen renders MOCK_SPECTRUM below so the visual/interaction design is
- * real and reviewable tonight. Swap MOCK_SPECTRUM for a real API call (same
- * shape as the spec's §4 output) once the engine ships — everything below
- * `load()` should keep working unchanged.
+ * current_hours_per_week is now real, computed from actual identity_checkins
+ * (GET /v2/identity-checkins/spectrum, engine/src/engine/identityAggregate.js)
+ * over a rolling window -- no longer mocked. desired_hours_per_week and
+ * floor_hours_per_week are still MOCK_SPECTRUM constants: computing a real
+ * desired figure needs the Phase 1/2 baseline+flex allocation engine from
+ * the spec, which is designed but not implemented anywhere yet. Swap those
+ * two fields in once that ships; current_hours_per_week already won't need
+ * to change.
  *
  * The reflection journal at the bottom is intentionally local-only
  * (AsyncStorage, never sent to the server) — same "no read access into this
@@ -17,7 +19,7 @@
 import React, { useState, useEffect, useCallback } from 'react';
 import { View, Text, TouchableOpacity, StyleSheet, ScrollView, TextInput, Keyboard } from 'react-native';
 import AsyncStorage from '@react-native-async-storage/async-storage';
-import { updateUser } from '../api/engine';
+import { updateUser, getIdentitySpectrum } from '../api/engine';
 import { showAlert } from '../utils/alert';
 
 const JOURNAL_KEY = 'identity_reflection_v1';
@@ -57,8 +59,10 @@ function sleepDurationHours(sleepTime, wakeTime) {
 // Shape matches engine-specs/adaptive-allocation-engine-v1.1.md §4's output,
 // per-axis, plus `floor_hours_per_week` where §2.3 defines one. Foundation's
 // sleep window is real now (wake_time/sleep_time already exist on `users`,
-// just were never actually surfaced/editable anywhere until this screen) --
-// the other five axes are still mock, same as before.
+// just were never actually surfaced/editable anywhere until this screen).
+// desired_hours_per_week / floor_hours_per_week below are still mock
+// placeholders (see header comment) -- current_hours_per_week gets
+// overwritten with real data from getIdentitySpectrum once it loads.
 const MOCK_SPECTRUM = {
   axes: [
     { axis: 'relationships', label: 'Relationships', floor_hours_per_week: 3, desired_hours_per_week: 18, current_hours_per_week: 12 },
@@ -70,6 +74,20 @@ const MOCK_SPECTRUM = {
 };
 
 function AxisBar({ item }) {
+  // No real samples yet for this axis -- show a distinct "not enough data"
+  // state rather than mixing a real 0h with the still-mock desired figure,
+  // which would misleadingly read as "measured zero" instead of "unmeasured."
+  if (item.sample_count === 0) {
+    return (
+      <View style={s.card}>
+        <View style={s.cardHeader}>
+          <Text style={s.axisLabel}>{item.label}</Text>
+        </View>
+        <Text style={s.gapNote}>Still collecting data — answer a few more check-ins to see this.</Text>
+      </View>
+    );
+  }
+
   const pct = item.desired_hours_per_week > 0
     ? Math.min(100, Math.round((item.current_hours_per_week / item.desired_hours_per_week) * 100))
     : 0;
@@ -99,6 +117,9 @@ function AxisBar({ item }) {
       <Text style={s.gapNote}>
         {onTrack ? '✓ on track this week' : `${gap.toFixed(1)}h short of your own goal`}
       </Text>
+      {item.fixed_hours_per_week > 0 && (
+        <Text style={s.fixedNote}>{item.fixed_hours_per_week}h of that is fixed/non-negotiable time</Text>
+      )}
     </View>
   );
 }
@@ -116,12 +137,24 @@ export default function IdentityScreen({ onBack, user }) {
   const [savingSchedule, setSavingSchedule] = useState(false);
 
   const load = useCallback(async () => {
-    // TODO: replace with a real call once the Allocation Engine ships, e.g.
-    //   const data = await getIdentitySpectrum(user.id);
-    setSpectrum(MOCK_SPECTRUM);
+    // desired/floor stay mock (see header comment); current_hours_per_week
+    // and fixed_hours_per_week get overwritten with real measured data below.
+    let axes = MOCK_SPECTRUM.axes;
+    if (user?.id) {
+      try {
+        const real = await getIdentitySpectrum(user.id);
+        axes = MOCK_SPECTRUM.axes.map(item => ({
+          ...item,
+          current_hours_per_week: real.axes[item.axis]?.current_hours_per_week ?? item.current_hours_per_week,
+          fixed_hours_per_week: real.axes[item.axis]?.fixed_hours_per_week ?? 0,
+          sample_count: real.axes[item.axis]?.sample_count ?? 0,
+        }));
+      } catch (e) { /* keep the mock fallback rather than a broken screen */ }
+    }
+    setSpectrum({ axes });
     const raw = await AsyncStorage.getItem(JOURNAL_KEY);
     if (raw) setJournal(JSON.parse(raw).text || '');
-  }, []);
+  }, [user?.id]);
 
   useEffect(() => { load(); }, [load]);
 
@@ -292,6 +325,7 @@ const s = StyleSheet.create({
   floorMark: { position: 'absolute', top: -2, width: 2, height: 12, backgroundColor: '#475569' },
 
   gapNote: { fontSize: 12, color: '#94a3b8', marginTop: 8 },
+  fixedNote: { fontSize: 11, color: '#64748b', marginTop: 4 },
 
   journalSection: { marginTop: 24 },
   journalLabel: { fontSize: 13, fontWeight: '800', color: '#f1f5f9', marginBottom: 2 },
