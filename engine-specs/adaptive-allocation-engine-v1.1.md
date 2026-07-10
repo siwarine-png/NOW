@@ -1,17 +1,19 @@
 # Adaptive Allocation Engine — MVP1 Spec
 
-**Version:** v1.2
-**Changelog from v1.1:** replaces the placeholder axis set in §2.3 with a
-research-grounded spectrum — Aspiration Index (Kasser & Ryan) for the
-competing "want" axes, Baumeister & Leary's need-to-belong finding for a new
-**floor + flex** split on Relationships (and, by the same logic, Finance).
-Adds Recreation as a sixth axis (included deliberately despite no direct
-research backing — see §2.3). Explicitly and permanently excludes Fame and
-Image as axes on ethical grounds: research shows pursuing them doesn't
-improve wellbeing, so the engine has no business helping anyone chase them.
-§3's Phase 1 now reserves floor hours for Relationships/Finance alongside
-Foundation; Phase 2's axis-ask for those two axes only competes for the
-*flex* portion above the floor.
+**Version:** v1.3
+**Changelog from v1.2:** unifies the axis model. Every axis — including
+Foundation — now has the exact same shape: `baseline_hours_per_week`
+(fixed, reserved unconditionally) + a flex portion above it that competes
+via gap-ranking, plus **measured** `current_hours_per_week` on all six, not
+just five. Foundation previously had no measurement at all (reserved in the
+schedule, but nothing tracked whether it actually happened) and never
+competed even for its own slack between min/max — both gaps close here.
+Renames "floor" to **baseline** throughout for one consistent term. The
+*values* stay evidence-honest, not uniform: Foundation/Relationships/Finance
+get a non-zero baseline because each has a specific, named research basis
+(§2.3); Achievement/Contribution/Recreation get **baseline = 0**, explicitly,
+because no equivalent basis exists for treating any part of them as
+non-negotiable — same schema field everywhere, no invented floor.
 **Status:** Sibling to the Adaptive Nudge Engine (v1.1) and the Adherence
 Addendum (v2.1.1) — together these are the three engines behind the product:
 
@@ -42,12 +44,11 @@ feedback loop run longer than the cost of being wrong.
 
 ## 2. Inputs
 
-### 2.1 Immutable constraints
+### 2.1 Foundation's constraints
 
-Fixed categories that exist to keep the person healthy enough to do anything
-else — sleep, meals, movement, hygiene, rest. Reused directly from BECOME's
-existing `BLOCK_GUIDELINES`: each constraint has a `minDur`/`maxDur` and a
-preferred time-of-day window.
+Sleep, meals, movement, hygiene, rest — reused directly from BECOME's
+existing `BLOCK_GUIDELINES`: each has a `minDur`/`maxDur` and a preferred
+time-of-day window.
 
 ```json
 {
@@ -59,10 +60,12 @@ preferred time-of-day window.
 }
 ```
 
-**Rule:** immutable constraints can never be removed and can never be
-allocated below `min_minutes`. They *can* shift in time or flex between
-`min_minutes` and `max_minutes` — same "cannot remove, can adjust" framing
-already decided for this product.
+**Rule:** `min_minutes` becomes Foundation's `baseline_hours_per_week` in
+§2.3/§3 — can never be removed and never allocated below it. The room
+between `min_minutes` and `max_minutes` is Foundation's *flex*, same concept
+as every other axis's flex now (v1.2 called this "discretionary buffer" and
+left it outside gap-ranking entirely; v1.3 folds it into the same mechanism
+everyone else uses, §3).
 
 ### 2.2 Active commitments
 
@@ -128,16 +131,17 @@ built for. Two sources actually fit the question being asked:
   hierarchy doesn't (people pursue belonging/esteem in parallel with
   survival needs, not only after them).
 
-Net effect on the axis set:
+Net effect on the axis set — every axis now carries the same
+`baseline_hours_per_week` field, but the *value* stays evidence-honest:
 
-| Axis | Type | Basis |
+| Axis | `baseline_hours_per_week` | Basis |
 |---|---|---|
-| **Foundation** | Need — fixed, never competes | Physiological/safety needs (Maslow's categories, as confirmed by Tay & Diener) |
-| **Relationships** | Need floor + Want flex | Floor: Baumeister & Leary (belonging is a real need). Flex above floor: Aspiration Index's Affiliation |
-| **Finance** | Need floor + Want flex | Floor: baseline financial security. Flex above floor: Aspiration Index's Wealth |
-| **Achievement** | Want, competes | Aspiration Index's Personal Growth + Tay & Diener's Mastery/Respect/Autonomy |
-| **Contribution** | Want, competes | Aspiration Index's Community |
-| **Recreation** | Want, competes | **Not in either source above** — included anyway, deliberately, on a "better to have room for it than not" basis. Flagged honestly as the one axis without direct research backing. |
+| **Foundation** | `min_minutes` (BLOCK_GUIDELINES) | Physiological/safety needs (Maslow's categories, as confirmed by Tay & Diener) |
+| **Relationships** | non-zero | Baumeister & Leary (belonging is a real need) |
+| **Finance** | non-zero | Baseline financial security |
+| **Achievement** | **0** | No equivalent basis — Aspiration Index's Personal Growth is a want, not a need |
+| **Contribution** | **0** | No equivalent basis — Aspiration Index's Community is a want, not a need |
+| **Recreation** | **0** | Not in either research source at all (see below) — definitely no basis for a floor |
 
 **Deliberately, permanently excluded: Fame and Image.** Not a research gap —
 the opposite. This is the one place more coverage was considered and
@@ -149,16 +153,17 @@ the same ethical bar that ruled out happiness/mood as a scoring input in
 §2.2 — the engine should support what's actually good for the person, not
 every possible want indiscriminately.
 
-Six axes total (one fixed, five competing) — up from v1.1's three, but each
-addition is either research-backed or an explicit, named exception, not
-scope creep.
+Six axes total, one shared schema, all six now measured — up from v1.1's
+three axes and v1.2's "five measured, one not." Every addition or structural
+change is either research-backed or an explicit, named exception, never
+scope creep for its own sake.
 
-For each competing axis (Relationships/Finance additionally carry a floor,
-see §3):
+Same shape for every axis now, Foundation included:
 
 ```json
 {
   "axis": "achievement",
+  "baseline_hours_per_week": 0,
   "desired_hours_per_week": 32,
   "current_hours_per_week": 18.5,
   "gap_raw": 13.5,
@@ -169,7 +174,7 @@ see §3):
 ```json
 {
   "axis": "relationships",
-  "floor_hours_per_week": 3,
+  "baseline_hours_per_week": 3,
   "desired_hours_per_week": 18,
   "current_hours_per_week": 12,
   "gap_raw": 6,
@@ -177,18 +182,38 @@ see §3):
 }
 ```
 
+```json
+{
+  "axis": "foundation",
+  "baseline_hours_per_week": 49,
+  "desired_hours_per_week": 63,
+  "current_hours_per_week": 52.5,
+  "gap_raw": 10.5,
+  "gap_smoothed": 6.8
+}
+```
+
+(Foundation's `desired_hours_per_week` defaults to the *max* end of
+BLOCK_GUIDELINES' healthy range, not a personal want — "desired" here means
+"the top of the healthy range," not an aspiration the person typed in.)
+
+- `baseline_hours_per_week` — present on every axis now. Non-negotiable
+  minimum, reserved in Phase 1 regardless of gap-ranking (§3). Zero for
+  Achievement/Contribution/Recreation — an honest value, not an omission.
 - `desired_hours_per_week` — sum of `target_hours_per_week` across all active
-  commitments tagged to this axis. User-set, same as v1.1 — the engine never
-  invents what you want.
-- `current_hours_per_week` — **measured**, not self-assessed: trailing actual
-  hours completed on this axis's commitments (same source data as
-  `completion_rate`, aggregated per axis instead of per commitment).
-- `floor_hours_per_week` — **Relationships and Finance only.** A
-  non-negotiable minimum, reserved in Phase 1 alongside Foundation (§3) —
-  same "cannot remove, can exceed" framing as immutable constraints, just
-  applied to a want-axis's baseline instead of a physiological one.
+  commitments tagged to this axis (Foundation: the healthy-range max instead,
+  see above). User-set for the five want axes — the engine never invents
+  what you want; fixed by BLOCK_GUIDELINES for Foundation.
+- `current_hours_per_week` — **measured on all six axes now**, not
+  self-assessed: trailing actual hours completed. For the five want axes
+  this is the same source data as `completion_rate`, aggregated per axis.
+  For Foundation, this requires Foundation blocks to be trackable/completable
+  the same way commitments are — not yet true in the NOW engine's data model
+  as of v1.3; a real implementation gap, not just a documentation one.
 - `gap_raw = desired − current`, floored at 0 (over-delivering on an axis
-  isn't a debt the engine tracks or "spends down" elsewhere).
+  isn't a debt the engine tracks or "spends down" elsewhere). For Foundation,
+  this is now a genuine reflection signal — e.g. "scheduled 9h sleep,
+  averaging 7h" — that v1.2 had no way to represent at all.
 - `gap_smoothed` — see §3; this is the value actually used for weighting,
   not `gap_raw`.
 
@@ -199,21 +224,19 @@ see §3):
 Two phases, both deterministic — no ML/LLM in this path, same founding
 principle as the other two engines.
 
-### Phase 1 — Reserve constraints and floors
+### Phase 1 — Reserve every axis's baseline
 
 ```
-committed_hours = Σ (constraint.min_minutes / 60) for all immutable constraints
-                + relationships.floor_hours_per_week
-                + finance.floor_hours_per_week
+committed_hours = Σ baseline_hours_per_week across all six axes
 free_pool = 168 − committed_hours
 ```
 
-Constraints are reserved at their *minimum*, not their maximum — the
-remainder up to `max_minutes` is available discretionary buffer, not
-pre-committed, so it doesn't starve the free pool by default. Relationships'
-and Finance's floors are reserved in full here, same as Foundation — they
-are guaranteed before anything else is distributed, not something that has
-to win a gap-ranking contest.
+One formula now, not a special case for Foundation plus a separate one for
+Relationships/Finance. Achievement/Contribution/Recreation's baselines are
+0, so they trivially reserve nothing here — same equation, no branch needed
+for them. Every non-zero baseline (Foundation's `min_minutes`,
+Relationships', Finance's) is guaranteed before anything else is
+distributed, never something that has to win a gap-ranking contest.
 
 ### Phase 2 — Distribute the free pool
 
@@ -231,10 +254,15 @@ forcing it into the same [0,1] logistic shape would fit the wrong kind of
 quantity just to reuse a formula. First week for an axis with no history:
 `gap_smoothed = gap_raw` (no prior to blend against).
 
-**Step 2 — rank axes by `gap_smoothed`, largest first.** This is the
-cross-axis ordering that used to be the manual `priority` field: the axis
-you've most under-delivered on relative to your own stated goal claims the
-free pool first.
+**Step 2 — rank axes by `gap_smoothed`, largest first.** All six axes enter
+this ranking now, Foundation included — v1.2 excluded it entirely ("never
+competes for the free pool"); v1.3 only exempts its *baseline*, not its
+flex. If someone's chronically under-resting relative to the healthy-range
+max, Foundation's flex can now legitimately win the free pool ahead of
+Achievement or anything else that week. This is the cross-axis ordering
+that used to be the manual `priority` field: the axis you've most
+under-delivered on relative to your own stated (or, for Foundation,
+prescribed) goal claims the free pool first.
 
 **Step 3 — within an axis, weight its commitments** exactly as v1.0 did:
 
@@ -250,19 +278,26 @@ starved to zero — the point is budget allocation, not punishment.)
 
 ```
 axis_ask = Σ target_hours_per_week for commitments on this axis
-           minus floor_hours_per_week (Relationships/Finance only — already reserved in Phase 1)
+           minus baseline_hours_per_week (already reserved in Phase 1 — trivially 0 for Achievement/Contribution/Recreation)
 if axis_ask <= free_pool:
-    grant each commitment its full target_hours_per_week (minus its share of the floor, already covered)
+    grant each commitment its full target_hours_per_week (minus its share of the baseline, already covered)
 else:
     grant each commitment target_hours_per_week × (weight / Σ weights on this axis) × (free_pool / axis_ask)
 free_pool -= Σ granted this axis
 ```
 
-For Relationships and Finance, the floor is never re-litigated here — it's
-already spent in Phase 1. This step only ever fights over the *flex* portion
-above it, so a bad week can shrink how much *extra* relationship or
-financial time gets granted, but never eats into the guaranteed floor
-itself.
+The baseline is never re-litigated here for any axis — it's already spent
+in Phase 1. This step only ever fights over the *flex* portion above it, so
+a bad week can shrink how much *extra* time an axis gets granted, but never
+eats into any axis's guaranteed baseline, Foundation included.
+
+**Open detail, deferred rather than resolved here:** how Foundation's own
+flex gets split *internally* across its sub-constraints (extra sleep vs.
+extra movement vs. extra meal time, when Foundation's axis wins the free
+pool) isn't specified yet — the `compounds`/`completion_rate` weight
+formula above was built for user-authored commitments, and Foundation's
+five sub-constraints aren't that. Needs its own small design pass before
+implementation; flagged honestly rather than papered over.
 
 Move to the next axis (next-largest `gap_smoothed`) with whatever
 `free_pool` remains. The axis with the biggest gap is always satisfied
@@ -294,9 +329,10 @@ both-anchors-failed stopping rule.
 {
   "week_of": "2026-07-13",
   "free_pool_hours": 68.5,
-  "floors_reserved": { "relationships": 3, "finance": 2 },
+  "baselines_reserved": { "foundation": 49, "relationships": 3, "finance": 2 },
   "axis_order": [
     { "axis": "achievement", "gap_smoothed": 9.2 },
+    { "axis": "foundation", "gap_smoothed": 6.8 },
     { "axis": "relationships", "gap_smoothed": 4.1 },
     { "axis": "finance", "gap_smoothed": 1.8 },
     { "axis": "contribution", "gap_smoothed": 0.6 },
@@ -361,9 +397,14 @@ this budget as its input).
   grounds rather than evidence-absence: research shows attaining these
   goals doesn't improve well-being, so the engine has no legitimate reason
   to help anyone allocate more week toward them.
-- **A floor on Achievement, Contribution, or Recreation.** Only
-  Relationships and Finance got the floor+flex treatment, because those are
-  the only two with a specific, named research basis (need to belong;
-  baseline financial security) for treating part of them as non-negotiable.
-  Extending floors to the other axes without equivalent justification would
-  just be re-inventing manual priority under a new name.
+- **A non-zero baseline on Achievement, Contribution, or Recreation.** Every
+  axis carries the `baseline_hours_per_week` field now (v1.3), but the value
+  is explicitly 0 for these three — Relationships/Finance/Foundation are the
+  only ones with a specific, named research basis (need to belong; baseline
+  financial security; physiological need) for treating part of them as
+  non-negotiable. Giving the other three a made-up non-zero baseline just
+  for symmetry would be re-inventing manual priority under a new name — the
+  schema is uniform on purpose; the values aren't, also on purpose.
+- **Foundation's internal flex distribution.** See §3's Step 4 note — how
+  Foundation's own sub-constraints split its flex hours when Foundation
+  wins the free pool is a real open detail, not designed yet.
