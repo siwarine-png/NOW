@@ -22,10 +22,11 @@
  *
  * "Not sure" is a decision-support detour, not a 7th axis: type what you're
  * doing, Groq suggests which of the same 6 axes it fits (engine/src/engine/
- * groq.js), and Accept records it (merged with any axis already tapped)
- * through the exact same postIdentityCheckin call a manual chip tap would
- * use. Reject it and you slide back to the chip picker -- the suggestion is
- * never itself the record.
+ * groq.js). Accept doesn't record anything by itself -- it merges the
+ * suggestion into the selection and slides back to the chip picker, where
+ * it shows up highlighted like any manually-tapped axis, so "Log ... ->" on
+ * that screen is the one place anything is actually confirmed and recorded.
+ * Reject it and you land on the same picker with nothing added.
  */
 import React, { useState } from 'react';
 import { View, Text, TextInput, TouchableOpacity, StyleSheet, Modal, ActivityIndicator } from 'react-native';
@@ -122,9 +123,18 @@ export default function IdentityCheckinPrompt({ visible, user, onDone }) {
     }
   }
 
+  // Accept merges the suggestion into the selection and returns to the pick
+  // screen rather than submitting straight away -- the suggested axis shows
+  // up highlighted there, same as a manual tap, so "Log ... ->" is the one
+  // place a check-in actually gets confirmed and recorded, not a second,
+  // different confirm action here that closes the whole modal immediately.
   function acceptSuggestion() {
     const combined = Array.from(new Set([...selected, suggestedAxis])).slice(0, MAX_AXES);
-    submitAll(combined);
+    setSelected(combined);
+    setStage(STAGE_PICK);
+    setText('');
+    setSuggestedAxis(null);
+    setSuggestError(false);
   }
 
   function backToPick() {
