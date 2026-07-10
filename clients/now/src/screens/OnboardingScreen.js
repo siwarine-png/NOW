@@ -211,8 +211,10 @@ export default function OnboardingScreen({ onComplete }) {
 
   if (step === STEP_INTRO) return (
     <View style={s.center}>
+      <Text style={s.brandName}>DESIRED</Text>
+      <Text style={s.brandTagline}>Identity to Reality</Text>
       <Text style={s.headline}>What do I do{'\n'}right now?</Text>
-      <Text style={s.sub}>No task list. No productivity system.{'\n'}Just: what's the one thing, right now.</Text>
+      <Text style={s.sub}>No task list. No productivity system.{'\n'}Just the next small step — toward who you're{'\n'}actually trying to become.</Text>
       {googleConfigured ? (
         <TouchableOpacity style={s.btn} disabled={!request || signingIn} onPress={() => promptAsync()}>
           {signingIn ? <ActivityIndicator color="#fff" /> : <Text style={s.btnText}>Sign in with Google →</Text>}
@@ -407,6 +409,8 @@ export default function OnboardingScreen({ onComplete }) {
 const s = StyleSheet.create({
   center: { flex: 1, backgroundColor: '#0f172a', justifyContent: 'center', alignItems: 'center', padding: 28 },
   centerScroll: { flexGrow: 1, backgroundColor: '#0f172a', justifyContent: 'center', alignItems: 'center', padding: 28, paddingTop: 64 },
+  brandName: { fontSize: 13, fontWeight: '900', color: '#818cf8', letterSpacing: 3, marginBottom: 2 },
+  brandTagline: { fontSize: 12, color: '#64748b', marginBottom: 28 },
   headline: { fontSize: 40, fontWeight: '900', color: '#fff', textAlign: 'center', lineHeight: 46, marginBottom: 20 },
   sub: { fontSize: 15, color: '#94a3b8', textAlign: 'center', lineHeight: 22, marginBottom: 40 },
   devNote: { fontSize: 11, color: '#f59e0b', textAlign: 'center', marginTop: 14, lineHeight: 16 },
