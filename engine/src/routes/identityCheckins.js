@@ -8,7 +8,7 @@
  */
 const { Router } = require('express');
 const sb = require('../db/client');
-const { AXES, isWithinSamplingWindow, isDue } = require('../engine/identityCheckin');
+const { AXES, isSampling, isDue, currentPhase } = require('../engine/identityCheckin');
 const { nowMinutesInTz } = require('../engine/rules');
 const { suggestAxis } = require('../engine/groq');
 
@@ -59,15 +59,17 @@ router.get('/status', async (req, res) => {
 
   // Accounts created before this feature shipped (or any registration path
   // that missed it) never got identity_checkin_started_at set, which would
-  // otherwise disable sampling forever -- start the window here, on first
-  // check, rather than only at registration.
+  // otherwise disable sampling forever -- start it here, on first check,
+  // rather than only at registration.
   if (!user.identity_checkin_started_at) {
     user.identity_checkin_started_at = new Date().toISOString();
     await sb.from('users').update({ identity_checkin_started_at: user.identity_checkin_started_at }).eq('id', user_id);
   }
 
-  const windowActive = isWithinSamplingWindow(user);
-  if (!windowActive) return res.json({ due: false, window_active: false, day: null });
+  // Sampling never ends (burst-then-sparse-forever, see identityCheckin.js) --
+  // window_active is effectively always true once started, kept as a field
+  // for a hypothetical future user with no start date rather than removed.
+  if (!isSampling(user)) return res.json({ due: false, window_active: false, day: null, phase: null });
 
   const { data: last } = await sb
     .from('identity_checkins').select('created_at')
@@ -77,7 +79,7 @@ router.get('/status', async (req, res) => {
   const due = isDue({ user, nowMin, lastCheckinAt: last?.created_at });
   const day = Math.floor((Date.now() - new Date(user.identity_checkin_started_at)) / 86_400_000) + 1;
 
-  res.json({ due, window_active: true, day });
+  res.json({ due, window_active: true, day, phase: currentPhase(user) });
 });
 
 module.exports = router;
