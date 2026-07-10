@@ -11,11 +11,21 @@
  * AsyncStorage-backed) so a skip doesn't just immediately re-show the
  * instant the status endpoint is polled again.
  *
+ * Up to 2 axes per check-in, not a full duration breakdown: a 3-hour gap
+ * between prompts often really did involve two things, but asking "how many
+ * minutes on each" would ask users to reconstruct time -- exactly the thing
+ * ESM point-sampling exists to avoid, and exactly what's hardest for ADHD
+ * users specifically (time blindness). Two taps, still zero estimation.
+ * Each selected axis is recorded as its own row via postIdentityCheckin --
+ * no schema change, aggregation just treats both as real samples from this
+ * moment.
+ *
  * "Not sure" is a decision-support detour, not a 7th axis: type what you're
  * doing, Groq suggests which of the same 6 axes it fits (engine/src/engine/
- * groq.js), and Accept records it through the exact same postIdentityCheckin
- * call a manual chip tap would use. Reject it and you slide back to the
- * chip picker -- the suggestion is never itself the record.
+ * groq.js), and Accept records it (merged with any axis already tapped)
+ * through the exact same postIdentityCheckin call a manual chip tap would
+ * use. Reject it and you slide back to the chip picker -- the suggestion is
+ * never itself the record.
  */
 import React, { useState } from 'react';
 import { View, Text, TextInput, TouchableOpacity, StyleSheet, Modal, ActivityIndicator } from 'react-native';
@@ -24,6 +34,7 @@ import { postIdentityCheckin, suggestIdentityAxis } from '../api/engine';
 
 const DISMISS_KEY = 'identity_checkin_dismissed_at_v1';
 const DISMISS_COOLDOWN_MIN = 20;
+const MAX_AXES = 2;
 
 const STAGE_PICK = 'pick';
 const STAGE_NOT_SURE = 'not_sure';
@@ -50,6 +61,7 @@ export async function shouldShowIdentityCheckin() {
 export default function IdentityCheckinPrompt({ visible, user, onDone }) {
   const [saving, setSaving] = useState(false);
   const [stage, setStage] = useState(STAGE_PICK);
+  const [selected, setSelected] = useState([]);
   const [text, setText] = useState('');
   const [suggesting, setSuggesting] = useState(false);
   const [suggestedAxis, setSuggestedAxis] = useState(null);
@@ -57,16 +69,28 @@ export default function IdentityCheckinPrompt({ visible, user, onDone }) {
 
   function reset() {
     setStage(STAGE_PICK);
+    setSelected([]);
     setText('');
     setSuggestedAxis(null);
     setSuggestError(false);
   }
 
-  async function choose(axisKey) {
-    if (!user?.id || saving) return;
+  function toggleAxis(axisKey) {
+    if (saving) return;
+    setSelected(prev => {
+      if (prev.includes(axisKey)) return prev.filter(k => k !== axisKey);
+      if (prev.length >= MAX_AXES) return prev;
+      return [...prev, axisKey];
+    });
+  }
+
+  async function submitAll(axesArr) {
+    if (!user?.id || !axesArr.length || saving) return;
     setSaving(true);
     try {
-      await postIdentityCheckin(user.id, axisKey);
+      for (const axisKey of axesArr) {
+        await postIdentityCheckin(user.id, axisKey);
+      }
     } catch (e) {
       // Best-effort — this is a sampling signal, not a critical write. A
       // missed sample just means one fewer data point, not a broken flow.
@@ -98,6 +122,20 @@ export default function IdentityCheckinPrompt({ visible, user, onDone }) {
     }
   }
 
+  function acceptSuggestion() {
+    const combined = Array.from(new Set([...selected, suggestedAxis])).slice(0, MAX_AXES);
+    submitAll(combined);
+  }
+
+  function backToPick() {
+    setStage(STAGE_PICK);
+    setText('');
+    setSuggestedAxis(null);
+    setSuggestError(false);
+  }
+
+  const atCap = selected.length >= MAX_AXES;
+
   return (
     <Modal visible={visible} transparent animationType="fade">
       <View style={s.backdrop}>
@@ -105,17 +143,34 @@ export default function IdentityCheckinPrompt({ visible, user, onDone }) {
           {stage === STAGE_PICK && (
             <>
               <Text style={s.title}>What are you doing right now?</Text>
-              <Text style={s.hint}>Tap one. Takes a second.</Text>
+              <Text style={s.hint}>Tap up to 2, if it was more than one thing.</Text>
               <View style={s.grid}>
-                {AXES.map(axis => (
-                  <TouchableOpacity key={axis.key} style={s.chip} disabled={saving} onPress={() => choose(axis.key)}>
-                    <Text style={s.chipText}>{axis.label}</Text>
-                  </TouchableOpacity>
-                ))}
-                <TouchableOpacity style={[s.chip, s.chipGhost]} disabled={saving} onPress={() => setStage(STAGE_NOT_SURE)}>
+                {AXES.map(axis => {
+                  const isSelected = selected.includes(axis.key);
+                  return (
+                    <TouchableOpacity
+                      key={axis.key}
+                      style={[s.chip, isSelected && s.chipSelected]}
+                      disabled={saving || (atCap && !isSelected)}
+                      onPress={() => toggleAxis(axis.key)}
+                    >
+                      <Text style={[s.chipText, isSelected && s.chipSelectedText]}>{axis.label}</Text>
+                    </TouchableOpacity>
+                  );
+                })}
+                <TouchableOpacity
+                  style={[s.chip, s.chipGhost]}
+                  disabled={saving || atCap}
+                  onPress={() => setStage(STAGE_NOT_SURE)}
+                >
                   <Text style={[s.chipText, s.chipGhostText]}>Not sure</Text>
                 </TouchableOpacity>
               </View>
+              {selected.length > 0 && (
+                <TouchableOpacity style={[s.btn, saving && s.btnDisabled]} disabled={saving} onPress={() => submitAll(selected)}>
+                  {saving ? <ActivityIndicator color="#fff" /> : <Text style={s.btnText}>Log {selected.map(k => AXIS_LABEL[k]).join(' + ')} →</Text>}
+                </TouchableOpacity>
+              )}
               <TouchableOpacity style={s.dismissBtn} disabled={saving} onPress={dismiss}>
                 <Text style={s.dismissText}>Not now</Text>
               </TouchableOpacity>
@@ -142,7 +197,7 @@ export default function IdentityCheckinPrompt({ visible, user, onDone }) {
               >
                 {suggesting ? <ActivityIndicator color="#fff" /> : <Text style={s.btnText}>Suggest →</Text>}
               </TouchableOpacity>
-              <TouchableOpacity style={s.dismissBtn} disabled={suggesting} onPress={() => setStage(STAGE_PICK)}>
+              <TouchableOpacity style={s.dismissBtn} disabled={suggesting} onPress={backToPick}>
                 <Text style={s.dismissText}>← Pick manually instead</Text>
               </TouchableOpacity>
             </>
@@ -152,10 +207,13 @@ export default function IdentityCheckinPrompt({ visible, user, onDone }) {
             <>
               <Text style={s.title}>This sounds like</Text>
               <Text style={s.suggestion}>{AXIS_LABEL[suggestedAxis]}</Text>
-              <TouchableOpacity style={[s.btn, saving && s.btnDisabled]} disabled={saving} onPress={() => choose(suggestedAxis)}>
+              {selected.length > 0 && (
+                <Text style={s.hint}>Along with {selected.map(k => AXIS_LABEL[k]).join(' + ')}</Text>
+              )}
+              <TouchableOpacity style={[s.btn, saving && s.btnDisabled]} disabled={saving} onPress={acceptSuggestion}>
                 {saving ? <ActivityIndicator color="#fff" /> : <Text style={s.btnText}>Accept</Text>}
               </TouchableOpacity>
-              <TouchableOpacity style={s.dismissBtn} disabled={saving} onPress={() => setStage(STAGE_PICK)}>
+              <TouchableOpacity style={s.dismissBtn} disabled={saving} onPress={backToPick}>
                 <Text style={s.dismissText}>← Not that, pick manually</Text>
               </TouchableOpacity>
             </>
@@ -173,7 +231,9 @@ const s = StyleSheet.create({
   hint: { fontSize: 12, color: '#64748b', marginBottom: 16, textAlign: 'center' },
   grid: { flexDirection: 'row', flexWrap: 'wrap', justifyContent: 'center', gap: 8, marginBottom: 14 },
   chip: { backgroundColor: '#0f172a', borderRadius: 20, paddingVertical: 10, paddingHorizontal: 14, borderWidth: 1, borderColor: '#334155' },
+  chipSelected: { backgroundColor: '#312e81', borderColor: '#6366f1' },
   chipText: { color: '#f1f5f9', fontSize: 13, fontWeight: '700' },
+  chipSelectedText: { color: '#c7d2fe' },
   chipGhost: { borderColor: '#6366f1', borderStyle: 'dashed' },
   chipGhostText: { color: '#818cf8' },
   dismissBtn: { paddingVertical: 8 },
@@ -183,5 +243,5 @@ const s = StyleSheet.create({
   btn: { backgroundColor: '#6366f1', borderRadius: 12, padding: 14, alignItems: 'center', width: '100%', marginBottom: 4 },
   btnDisabled: { opacity: 0.5 },
   btnText: { color: '#fff', fontSize: 15, fontWeight: '800' },
-  suggestion: { fontSize: 22, fontWeight: '900', color: '#818cf8', marginBottom: 18 },
+  suggestion: { fontSize: 22, fontWeight: '900', color: '#818cf8', marginBottom: 6 },
 });
