@@ -57,6 +57,15 @@ router.get('/status', async (req, res) => {
     .eq('id', user_id).single();
   if (error || !user) return res.status(404).json({ error: 'user not found' });
 
+  // Accounts created before this feature shipped (or any registration path
+  // that missed it) never got identity_checkin_started_at set, which would
+  // otherwise disable sampling forever -- start the window here, on first
+  // check, rather than only at registration.
+  if (!user.identity_checkin_started_at) {
+    user.identity_checkin_started_at = new Date().toISOString();
+    await sb.from('users').update({ identity_checkin_started_at: user.identity_checkin_started_at }).eq('id', user_id);
+  }
+
   const windowActive = isWithinSamplingWindow(user);
   if (!windowActive) return res.json({ due: false, window_active: false, day: null });
 
