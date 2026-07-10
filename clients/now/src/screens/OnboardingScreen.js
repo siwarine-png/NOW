@@ -391,8 +391,8 @@ const s = StyleSheet.create({
   chip: { backgroundColor: '#1e293b', borderRadius: 20, paddingVertical: 10, paddingHorizontal: 16, borderWidth: 1, borderColor: '#334155' },
   chipText: { color: '#f1f5f9', fontSize: 14, fontWeight: '600' },
   customAnchorRow: { alignItems: 'center', marginTop: 4 },
-  priorityLabel: { fontSize: 14, fontWeight: '700', color: '#f1f5f9' },
-  priorityControl: { flexDirection: 'row', alignItems: 'center', gap: 8 },
+  priorityLabel: { fontSize: 15, fontWeight: '700', color: '#f1f5f9' },
+  priorityControl: { flexDirection: 'row', alignItems: 'center', gap: 9 },
   priorityBtnText: { color: '#818cf8', fontSize: 16, fontWeight: '800' },
   priorityDots: { flexDirection: 'row', gap: 4 },
   priorityDot: { width: 8, height: 8, borderRadius: 4, backgroundColor: '#1e293b', borderWidth: 1, borderColor: '#334155' },
@@ -401,12 +401,12 @@ const s = StyleSheet.create({
   // screen with no scrolling, so this trims vertical space everywhere
   // (smaller title/hint, tighter row padding, smaller +/- buttons) rather
   // than reusing the roomier styles the other steps use.
-  identityScreen: { flex: 1, backgroundColor: '#0f172a', padding: 24, paddingTop: 44, justifyContent: 'center' },
-  stepLabelCompact: { fontSize: 10, fontWeight: '700', color: '#6366f1', letterSpacing: 1, textTransform: 'uppercase', marginBottom: 8, textAlign: 'center' },
-  titleCompact: { fontSize: 20, fontWeight: '900', color: '#fff', textAlign: 'center', lineHeight: 25, marginBottom: 4 },
-  hintCompact: { fontSize: 12, color: '#64748b', marginBottom: 14, textAlign: 'center' },
+  identityScreen: { flex: 1, backgroundColor: '#0f172a', padding: 24, paddingTop: 40, justifyContent: 'center' },
+  stepLabelCompact: { fontSize: 11, fontWeight: '700', color: '#6366f1', letterSpacing: 1, textTransform: 'uppercase', marginBottom: 12, textAlign: 'center' },
+  titleCompact: { fontSize: 25, fontWeight: '900', color: '#fff', textAlign: 'center', lineHeight: 30, marginBottom: 8 },
+  hintCompact: { fontSize: 13, color: '#64748b', marginBottom: 18, textAlign: 'center' },
   priorityListCompact: { width: '100%', maxWidth: 340, alignSelf: 'center' },
-  priorityRowCompact: { flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center', paddingVertical: 7, borderBottomWidth: 1, borderBottomColor: '#1e293b' },
-  priorityBtnCompact: { width: 26, height: 26, borderRadius: 13, backgroundColor: '#1e293b', borderWidth: 1, borderColor: '#334155', alignItems: 'center', justifyContent: 'center' },
-  btnCompact: { marginTop: 16, padding: 13 },
+  priorityRowCompact: { flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center', paddingVertical: 10, borderBottomWidth: 1, borderBottomColor: '#1e293b' },
+  priorityBtnCompact: { width: 28, height: 28, borderRadius: 14, backgroundColor: '#1e293b', borderWidth: 1, borderColor: '#334155', alignItems: 'center', justifyContent: 'center' },
+  btnCompact: { marginTop: 16, padding: 16 },
 });

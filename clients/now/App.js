@@ -90,7 +90,7 @@ function App() {
   } else if (screen === 'stuck') {
     content = <AddPainPointScreen user={user} onCreated={() => setScreen('today')} />;
   } else if (screen === 'identity') {
-    content = <IdentityScreen onBack={() => setScreen('today')} />;
+    content = <IdentityScreen user={user} onBack={() => setScreen('today')} />;
   } else {
     content = <TodayScreen user={user} onOpenNow={() => setScreen('now-focus')} onSettings={() => setScreen('settings')} />;
   }

@@ -17,13 +17,49 @@
 import React, { useState, useEffect, useCallback } from 'react';
 import { View, Text, TouchableOpacity, StyleSheet, ScrollView, TextInput, Keyboard } from 'react-native';
 import AsyncStorage from '@react-native-async-storage/async-storage';
+import { updateUser } from '../api/engine';
+import { showAlert } from '../utils/alert';
 
 const JOURNAL_KEY = 'identity_reflection_v1';
 
+// Accepts "2300", "11", "23:00" etc., same shape as the time inputs already
+// used in OnboardingScreen.js/AddPainPointScreen.js -- not shared via a
+// common module in this codebase, so duplicated locally like those are.
+function normalizeTime(raw) {
+  if (!raw) return raw;
+  if (raw.includes(':')) return raw;
+  const digits = raw.replace(/\D/g, '');
+  if (!digits) return raw;
+  const hours = Math.min(parseInt(digits.length <= 2 ? digits : digits.slice(0, -2), 10) || 0, 23);
+  const mins = Math.min(digits.length <= 2 ? 0 : parseInt(digits.slice(-2), 10) || 0, 59);
+  return `${String(hours).padStart(2, '0')}:${String(mins).padStart(2, '0')}`;
+}
+
+function formatDisplayTime(hhmm) {
+  const [h, m] = hhmm.split(':').map(Number);
+  const period = h >= 12 ? 'PM' : 'AM';
+  const h12 = h % 12 === 0 ? 12 : h % 12;
+  return `${h12}:${String(m).padStart(2, '0')} ${period}`;
+}
+
+function timeToMinutes(hhmm) {
+  const [h, m] = hhmm.split(':').map(Number);
+  return h * 60 + m;
+}
+
+// Handles the overnight wrap (sleep 23:00 -> wake 07:00 = 8h, not negative).
+function sleepDurationHours(sleepTime, wakeTime) {
+  const s = timeToMinutes(sleepTime), w = timeToMinutes(wakeTime);
+  const mins = w > s ? w - s : (1440 - s) + w;
+  return Math.round((mins / 60) * 10) / 10;
+}
+
 // Shape matches engine-specs/adaptive-allocation-engine-v1.1.md §4's output,
-// per-axis, plus `floor_hours_per_week` where §2.3 defines one.
+// per-axis, plus `floor_hours_per_week` where §2.3 defines one. Foundation's
+// sleep window is real now (wake_time/sleep_time already exist on `users`,
+// just were never actually surfaced/editable anywhere until this screen) --
+// the other five axes are still mock, same as before.
 const MOCK_SPECTRUM = {
-  foundation: { label: 'Foundation', reserved_hours_per_week: 63 }, // sleep/meals/movement/hygiene — never competes
   axes: [
     { axis: 'relationships', label: 'Relationships', floor_hours_per_week: 3, desired_hours_per_week: 18, current_hours_per_week: 12 },
     { axis: 'achievement', label: 'Achievement', desired_hours_per_week: 32, current_hours_per_week: 22.5 },
@@ -67,10 +103,17 @@ function AxisBar({ item }) {
   );
 }
 
-export default function IdentityScreen({ onBack }) {
+export default function IdentityScreen({ onBack, user }) {
   const [spectrum, setSpectrum] = useState(null);
   const [journal, setJournal] = useState('');
   const [saved, setSaved] = useState(false);
+
+  const [wakeTime, setWakeTime] = useState(user?.wake_time || '07:00');
+  const [sleepTime, setSleepTime] = useState(user?.sleep_time || '23:00');
+  const [editingSchedule, setEditingSchedule] = useState(false);
+  const [wakeInput, setWakeInput] = useState('');
+  const [sleepInput, setSleepInput] = useState('');
+  const [savingSchedule, setSavingSchedule] = useState(false);
 
   const load = useCallback(async () => {
     // TODO: replace with a real call once the Allocation Engine ships, e.g.
@@ -87,6 +130,33 @@ export default function IdentityScreen({ onBack }) {
     Keyboard.dismiss();
     setSaved(true);
     setTimeout(() => setSaved(false), 1500);
+  }
+
+  function openScheduleEdit() {
+    setWakeInput(wakeTime.replace(':', ''));
+    setSleepInput(sleepTime.replace(':', ''));
+    setEditingSchedule(true);
+  }
+
+  async function saveSchedule() {
+    const wt = normalizeTime(wakeInput) || wakeTime;
+    const st = normalizeTime(sleepInput) || sleepTime;
+    setSavingSchedule(true);
+    try {
+      // Quiet hours mirror the real sleep window here too, same reasoning
+      // registration already uses when wake/sleep is first set (asleep =
+      // quiet) -- editing the schedule later should keep that in sync.
+      if (user?.id) await updateUser(user.id, { wake_time: wt, sleep_time: st, quiet_start: st, quiet_end: wt });
+      setWakeTime(wt);
+      setSleepTime(st);
+      setEditingSchedule(false);
+    } catch (e) {
+      // Keep the edit form open with what was typed rather than silently
+      // discarding it on a failed save.
+      showAlert("Couldn't save", e.message);
+    } finally {
+      setSavingSchedule(false);
+    }
   }
 
   if (!spectrum) return null;
@@ -112,10 +182,54 @@ export default function IdentityScreen({ onBack }) {
         </Text>
 
         <View style={s.foundationNote}>
-          <Text style={s.foundationText}>
-            🔒 {spectrum.foundation.reserved_hours_per_week}h/week reserved for {spectrum.foundation.label.toLowerCase()}
-            (sleep, meals, movement) — never competes with anything below.
-          </Text>
+          {!editingSchedule ? (
+            <>
+              <Text style={s.foundationText}>
+                🔒 Sleep {formatDisplayTime(sleepTime)}–{formatDisplayTime(wakeTime)}
+                {' '}({sleepDurationHours(sleepTime, wakeTime)}h/night, {Math.round(sleepDurationHours(sleepTime, wakeTime) * 7)}h/week reserved)
+                {' '}— never competes with anything below.
+              </Text>
+              <TouchableOpacity onPress={openScheduleEdit} style={s.foundationEditBtn}>
+                <Text style={s.foundationEditBtnText}>Edit sleep schedule</Text>
+              </TouchableOpacity>
+            </>
+          ) : (
+            <>
+              <Text style={s.foundationText}>What time do you actually wake up and go to sleep?</Text>
+              <View style={s.scheduleRow}>
+                <View style={s.scheduleField}>
+                  <Text style={s.scheduleFieldLabel}>Wake</Text>
+                  <TextInput
+                    style={s.scheduleInput}
+                    value={wakeInput}
+                    onChangeText={t => setWakeInput(t.replace(/\D/g, '').slice(0, 4))}
+                    keyboardType="number-pad"
+                    placeholder="e.g. 700"
+                    placeholderTextColor="#475569"
+                  />
+                </View>
+                <View style={s.scheduleField}>
+                  <Text style={s.scheduleFieldLabel}>Sleep</Text>
+                  <TextInput
+                    style={s.scheduleInput}
+                    value={sleepInput}
+                    onChangeText={t => setSleepInput(t.replace(/\D/g, '').slice(0, 4))}
+                    keyboardType="number-pad"
+                    placeholder="e.g. 2300"
+                    placeholderTextColor="#475569"
+                  />
+                </View>
+              </View>
+              <View style={s.scheduleActions}>
+                <TouchableOpacity onPress={() => setEditingSchedule(false)} style={s.linkBtn} disabled={savingSchedule}>
+                  <Text style={s.linkBtnText}>Cancel</Text>
+                </TouchableOpacity>
+                <TouchableOpacity onPress={saveSchedule} style={s.saveBtn} disabled={savingSchedule}>
+                  <Text style={s.saveBtnText}>{savingSchedule ? 'Saving…' : 'Save'}</Text>
+                </TouchableOpacity>
+              </View>
+            </>
+          )}
         </View>
 
         {spectrum.axes.map(item => <AxisBar key={item.axis} item={item} />)}
@@ -154,6 +268,15 @@ const s = StyleSheet.create({
 
   foundationNote: { backgroundColor: '#1e293b', borderRadius: 12, padding: 12, marginBottom: 16 },
   foundationText: { fontSize: 12, color: '#94a3b8', lineHeight: 17 },
+  foundationEditBtn: { marginTop: 8, alignSelf: 'flex-start' },
+  foundationEditBtnText: { fontSize: 12, fontWeight: '700', color: '#818cf8' },
+  scheduleRow: { flexDirection: 'row', gap: 12, marginTop: 10 },
+  scheduleField: { flex: 1 },
+  scheduleFieldLabel: { fontSize: 11, color: '#64748b', marginBottom: 4 },
+  scheduleInput: { backgroundColor: '#0f172a', borderRadius: 10, borderWidth: 1, borderColor: '#334155', padding: 10, fontSize: 14, color: '#f1f5f9', textAlign: 'center' },
+  scheduleActions: { flexDirection: 'row', justifyContent: 'flex-end', alignItems: 'center', gap: 14, marginTop: 12 },
+  linkBtn: { paddingVertical: 6 },
+  linkBtnText: { color: '#6366f1', fontSize: 13, fontWeight: '700' },
 
   card: { backgroundColor: '#1e293b', borderRadius: 14, padding: 16, marginBottom: 12, borderWidth: 1, borderColor: '#273449' },
   cardHeader: { flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center', marginBottom: 4 },
