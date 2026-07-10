@@ -405,7 +405,7 @@ const s = StyleSheet.create({
   stepLabelCompact: { fontSize: 10, fontWeight: '700', color: '#6366f1', letterSpacing: 1, textTransform: 'uppercase', marginBottom: 8, textAlign: 'center' },
   titleCompact: { fontSize: 20, fontWeight: '900', color: '#fff', textAlign: 'center', lineHeight: 25, marginBottom: 4 },
   hintCompact: { fontSize: 12, color: '#64748b', marginBottom: 14, textAlign: 'center' },
-  priorityListCompact: { width: '100%' },
+  priorityListCompact: { width: '100%', maxWidth: 340, alignSelf: 'center' },
   priorityRowCompact: { flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center', paddingVertical: 7, borderBottomWidth: 1, borderBottomColor: '#1e293b' },
   priorityBtnCompact: { width: 26, height: 26, borderRadius: 13, backgroundColor: '#1e293b', borderWidth: 1, borderColor: '#334155', alignItems: 'center', justifyContent: 'center' },
   btnCompact: { marginTop: 16, padding: 13 },
