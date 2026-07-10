@@ -76,6 +76,33 @@ function isQuietHours(user, nowMin) {
   return qs < qe ? (nowMin >= qs && nowMin < qe) : (nowMin >= qs || nowMin < qe);
 }
 
+// Commitment-mode fallback for the daily push, so users with no domain data
+// still get a real, concrete thing in the notification body instead of the
+// generic placeholder -- picks the single highest-risk active, in-window,
+// not-yet-checked-in commitment's own next_action/title. Deliberately
+// doesn't run the full R1-R8 rule engine or write an intervention record:
+// this is a best-effort richer preview for a lock-screen notification, not
+// the authoritative pick GET /interventions/now still makes once the app is
+// actually opened.
+async function pickCommitmentPushBody(userId, nowMin, now) {
+  const { data: commitments } = await sb
+    .from('commitments').select('*').eq('user_id', userId).eq('status', 'active');
+  const candidates = (commitments || []).filter(c =>
+    isWithinWindow(nowMin, c.window_start, c.window_end) &&
+    (!c.snoozed_until || new Date(c.snoozed_until) <= now)
+  );
+  if (!candidates.length) return null;
+
+  const scored = await Promise.all(candidates.map(async c => {
+    const stats = await loadStats(c.id);
+    if (stats.checkedInToday) return null;
+    const { score } = scoreRisk(c, stats);
+    return { c, score };
+  }));
+  const best = scored.filter(Boolean).sort((a, b) => b.score - a.score)[0];
+  return best ? (best.c.next_action || best.c.title) : null;
+}
+
 // Daily check-in reminder — the thing onboarding actually promises ("we'll
 // check in with you once a day around 6 PM"). Only users who registered a
 // push_token (opted in client-side) are considered; checkin_time is the
@@ -111,6 +138,7 @@ async function runPushReminderTick() {
       const domainResult = await pickDomainIntervention(sb, user.id);
       if (domainResult?.all_done) body = "You're all caught up today. No pressure — just checking in.";
       else if (domainResult?.message) body = domainResult.message;
+      else body = await pickCommitmentPushBody(user.id, nowMin, now) || body;
     } catch (e) {
       console.error('[push] domain lookup failed for user', user.id, e.message);
     }
