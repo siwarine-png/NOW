@@ -12,6 +12,21 @@ function addMinutesToTime(hhmm, minutes) {
   return `${String(Math.floor(total / 60)).padStart(2, '0')}:${String(total % 60).padStart(2, '0')}`;
 }
 
+// GET /users/lookup?external_ref= — read-only existence check, scoped to
+// this app. Lets the client tell "returning account, skip onboarding" from
+// "genuinely new" WITHOUT going through the POST / upsert below, which
+// always writes wake_time/sleep_time/quiet_start/quiet_end/checkin_time
+// (defaults when not explicitly passed) regardless of isNewUser -- calling
+// that just to check existence would silently clobber a returning user's
+// real customized schedule back to onboarding's generic defaults.
+router.get('/lookup', async (req, res) => {
+  const { external_ref } = req.query;
+  if (!external_ref) return res.status(400).json({ error: 'external_ref required' });
+  const { data: user } = await sb
+    .from('users').select('*').eq('app_id', req.app_id).eq('external_ref', external_ref).single();
+  res.json({ user: user || null });
+});
+
 // POST /users — register end user
 router.post('/', async (req, res) => {
   const {

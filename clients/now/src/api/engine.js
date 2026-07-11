@@ -32,6 +32,15 @@ export async function registerUser(external_ref, timezone, wake_time, sleep_time
   return request('POST', '/users', { external_ref, timezone, wake_time, sleep_time, checkin_time, ...(anchorInfo || {}) });
 }
 
+// Read-only existence check -- lets onboarding tell a returning account from
+// a genuinely new one before running the anchor/energy/identity wizard, so
+// re-signing in with the same Google account can skip straight to the app
+// instead of re-asking questions that already have real answers on file.
+export async function lookupUser(external_ref) {
+  const params = new URLSearchParams({ external_ref });
+  return request('GET', `/users/lookup?${params}`);
+}
+
 // ── Adaptive Nudge Engine ────────────────────────────────────────────────
 export async function getBehaviorStatus(user_id, behavior) {
   const params = new URLSearchParams({ user_id });

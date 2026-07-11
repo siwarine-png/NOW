@@ -28,7 +28,7 @@ import {
 } from 'react-native';
 import * as WebBrowser from 'expo-web-browser';
 import * as Google from 'expo-auth-session/providers/google';
-import { registerUser } from '../api/engine';
+import { registerUser, lookupUser } from '../api/engine';
 import { setUser, markOnboarded } from '../store/session';
 import { flushQueue } from '../store/queue';
 import { showAlert } from '../utils/alert';
@@ -136,7 +136,26 @@ export default function OnboardingScreen({ onComplete }) {
       headers: { Authorization: `Bearer ${response.authentication.accessToken}` },
     })
       .then(r => r.json())
-      .then(profile => { setGoogleProfile(profile); setStep(STEP_ANCHOR); })
+      .then(async profile => {
+        setGoogleProfile(profile);
+        // Returning account (this Google id already has one) -- skip the
+        // whole wizard and land straight in the app with their existing
+        // data intact, instead of re-asking anchor/energy/identity
+        // questions that already have real answers on file. A genuinely
+        // new Google sign-in (no existing row) falls through to the
+        // normal step-by-step flow below.
+        try {
+          const { user } = await lookupUser(`google_${profile.id}`);
+          if (user) {
+            await setUser(user);
+            await markOnboarded();
+            await flushQueue();
+            onComplete(user);
+            return;
+          }
+        } catch (e) { /* lookup failure just falls through to normal onboarding */ }
+        setStep(STEP_ANCHOR);
+      })
       .catch(() => showAlert('Sign-in failed', 'Could not fetch your Google profile. Try again.'))
       .finally(() => setSigningIn(false));
   }, [response]);
