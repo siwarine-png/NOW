@@ -1,24 +1,25 @@
 /**
  * "Something new to track" — reached via the secondary link at the bottom
  * of StuckScreen (the "I'm Stuck" tab's primary action is now a momentary
- * unsticking triage, not this). Same shape as the pain-point question in
- * OnboardingScreen (medicine vs. something else vs. a chosen time), just
- * reachable again later via POST /commitments directly instead of only at
- * registration.
+ * unsticking triage, not this).
  *
- * STEP_AXIS (custom path only) tags the new commitment with an Adaptive
- * Allocation Engine identity_axis (migration 016) -- one tap, no typing.
- * Medicine skips it entirely and stays null: adherence-class actions are
- * governed separately (Adherence Addendum) and don't belong to any of the
- * 6-axis want/need spectrum, so asking would be a category error, not just
- * unnecessary friction.
+ * No preset options anymore (the old "Remembering medicine" button is
+ * gone) -- straight to a blank input with a short guiding hint, since a
+ * fixed list of presets implicitly narrows what people think they're
+ * "allowed" to type. Medication reminders specifically still exist, just
+ * via the Adaptive Nudge Engine's own reuse flow in Settings ("Remind me
+ * to take medication"), which is the actually-adherence-aware path for
+ * that -- this screen is only ever the 6-axis want/need spectrum now.
+ *
+ * STEP_AXIS tags the new commitment with an Adaptive Allocation Engine
+ * identity_axis (migration 016) -- one tap, no typing.
  */
 import React, { useState } from 'react';
 import { View, Text, TextInput, TouchableOpacity, StyleSheet, ActivityIndicator } from 'react-native';
 import { createCommitment } from '../api/engine';
 import { showAlert } from '../utils/alert';
 
-const STEP_CHOOSE = 0;
+const STEP_TITLE = 0;
 const STEP_AXIS = 1;
 const STEP_TIME = 2;
 
@@ -62,9 +63,7 @@ function formatDisplayTime(hhmm) {
 }
 
 export default function AddPainPointScreen({ user, onCreated }) {
-  const [step, setStep] = useState(STEP_CHOOSE);
-  const [painPointType, setPainPointType] = useState(null);
-  const [showCustom, setShowCustom] = useState(false);
+  const [step, setStep] = useState(STEP_TITLE);
   const [customTitle, setCustomTitle] = useState('');
   const [identityAxis, setIdentityAxis] = useState(null);
   const [time, setTime] = useState(defaultTime());
@@ -72,9 +71,9 @@ export default function AddPainPointScreen({ user, onCreated }) {
   const [customTime, setCustomTime] = useState('');
   const [loading, setLoading] = useState(false);
 
-  function choose(type) {
-    setPainPointType(type);
-    setStep(type === 'medicine' ? STEP_TIME : STEP_AXIS);
+  function continueFromTitle() {
+    if (!customTitle.trim()) return;
+    setStep(STEP_AXIS);
   }
 
   function chooseAxis(axisKey) {
@@ -91,23 +90,14 @@ export default function AddPainPointScreen({ user, onCreated }) {
     if (!user?.id) return;
     setLoading(true);
     try {
-      const payload = painPointType === 'medicine'
-        ? {
-            user_id: user.id, title: 'Take medication', next_action: 'Take your medication',
-            cadence: 'daily', window_start: finalTime, window_end: addMinutesToTime(finalTime, 30),
-            priority_tier: 'critical', identity_axis: null,
-          }
-        : {
-            user_id: user.id, title: customTitle.trim(), next_action: null,
-            cadence: 'daily', window_start: finalTime, window_end: addMinutesToTime(finalTime, 60),
-            priority_tier: 'normal', identity_axis: identityAxis,
-          };
-      await createCommitment(payload);
-      setStep(STEP_CHOOSE);
-      setPainPointType(null);
+      await createCommitment({
+        user_id: user.id, title: customTitle.trim(), next_action: null,
+        cadence: 'daily', window_start: finalTime, window_end: addMinutesToTime(finalTime, 60),
+        priority_tier: 'normal', identity_axis: identityAxis,
+      });
+      setStep(STEP_TITLE);
       setCustomTitle('');
       setIdentityAxis(null);
-      setShowCustom(false);
       setPickingTime(false);
       setCustomTime('');
       setTime(defaultTime());
@@ -166,30 +156,19 @@ export default function AddPainPointScreen({ user, onCreated }) {
   return (
     <View style={s.center}>
       <Text style={s.title}>What's the one thing{'\n'}you want help with{'\n'}right now?</Text>
+      <Text style={s.hint}>Big or small — whatever's actually on your mind.</Text>
 
-      {!showCustom ? (
-        <>
-          <TouchableOpacity style={s.btn} onPress={() => choose('medicine')}>
-            <Text style={s.btnText}>Remembering medicine</Text>
-          </TouchableOpacity>
-          <TouchableOpacity style={s.linkBtn} onPress={() => setShowCustom(true)}>
-            <Text style={s.linkBtnText}>Something else</Text>
-          </TouchableOpacity>
-        </>
-      ) : (
-        <>
-          <TextInput
-            style={s.input} value={customTitle} onChangeText={setCustomTitle}
-            placeholder="e.g. finishing my taxes" placeholderTextColor="#475569" autoFocus
-          />
-          <TouchableOpacity
-            style={[s.btn, !customTitle.trim() && s.btnDisabled]} disabled={!customTitle.trim()}
-            onPress={() => choose('custom')}
-          >
-            <Text style={s.btnText}>Continue →</Text>
-          </TouchableOpacity>
-        </>
-      )}
+      <TextInput
+        style={s.input} value={customTitle} onChangeText={setCustomTitle}
+        placeholder="e.g. finishing my taxes" placeholderTextColor="#475569" autoFocus
+        onSubmitEditing={continueFromTitle} returnKeyType="next"
+      />
+      <TouchableOpacity
+        style={[s.btn, !customTitle.trim() && s.btnDisabled]} disabled={!customTitle.trim()}
+        onPress={continueFromTitle}
+      >
+        <Text style={s.btnText}>Continue →</Text>
+      </TouchableOpacity>
     </View>
   );
 }
@@ -197,7 +176,7 @@ export default function AddPainPointScreen({ user, onCreated }) {
 const s = StyleSheet.create({
   center: { flex: 1, backgroundColor: '#0f172a', justifyContent: 'center', alignItems: 'center', padding: 28 },
   title: { fontSize: 26, fontWeight: '900', color: '#fff', textAlign: 'center', lineHeight: 34, marginBottom: 8 },
-  hint: { fontSize: 15, color: '#64748b', marginBottom: 32 },
+  hint: { fontSize: 15, color: '#64748b', marginBottom: 32, textAlign: 'center' },
   input: { backgroundColor: '#1e293b', borderRadius: 10, padding: 14, fontSize: 16, color: '#f1f5f9', marginBottom: 16, borderWidth: 1, borderColor: '#334155', width: 240, textAlign: 'center' },
   btn: { backgroundColor: '#6366f1', borderRadius: 12, padding: 16, alignItems: 'center', marginTop: 10, minWidth: 220 },
   btnDisabled: { opacity: 0.5 },
