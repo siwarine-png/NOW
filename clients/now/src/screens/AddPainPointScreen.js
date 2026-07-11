@@ -21,7 +21,8 @@ import { showAlert } from '../utils/alert';
 
 const STEP_TITLE = 0;
 const STEP_AXIS = 1;
-const STEP_TIME = 2;
+const STEP_RECURRENCE = 2;
+const STEP_TIME = 3;
 
 const AXES = [
   { key: 'foundation', label: 'Foundation' },
@@ -66,6 +67,7 @@ export default function AddPainPointScreen({ user, onCreated }) {
   const [step, setStep] = useState(STEP_TITLE);
   const [customTitle, setCustomTitle] = useState('');
   const [identityAxis, setIdentityAxis] = useState(null);
+  const [cadence, setCadence] = useState('daily');
   const [time, setTime] = useState(defaultTime());
   const [pickingTime, setPickingTime] = useState(false);
   const [customTime, setCustomTime] = useState('');
@@ -78,6 +80,11 @@ export default function AddPainPointScreen({ user, onCreated }) {
 
   function chooseAxis(axisKey) {
     setIdentityAxis(axisKey);
+    setStep(STEP_RECURRENCE);
+  }
+
+  function chooseCadence(value) {
+    setCadence(value);
     setStep(STEP_TIME);
   }
 
@@ -92,12 +99,13 @@ export default function AddPainPointScreen({ user, onCreated }) {
     try {
       await createCommitment({
         user_id: user.id, title: customTitle.trim(), next_action: null,
-        cadence: 'daily', window_start: finalTime, window_end: addMinutesToTime(finalTime, 60),
+        cadence, window_start: finalTime, window_end: addMinutesToTime(finalTime, 60),
         priority_tier: 'normal', identity_axis: identityAxis,
       });
       setStep(STEP_TITLE);
       setCustomTitle('');
       setIdentityAxis(null);
+      setCadence('daily');
       setPickingTime(false);
       setCustomTime('');
       setTime(defaultTime());
@@ -119,6 +127,18 @@ export default function AddPainPointScreen({ user, onCreated }) {
           </TouchableOpacity>
         ))}
       </View>
+    </View>
+  );
+
+  if (step === STEP_RECURRENCE) return (
+    <View style={s.center}>
+      <Text style={s.title}>Is this a one-time thing,{'\n'}or something you'll do{'\n'}regularly?</Text>
+      <TouchableOpacity style={s.btn} onPress={() => chooseCadence('once')}>
+        <Text style={s.btnText}>Just once</Text>
+      </TouchableOpacity>
+      <TouchableOpacity style={[s.btn, s.btnSecondary]} onPress={() => chooseCadence('daily')}>
+        <Text style={s.btnText}>Every day</Text>
+      </TouchableOpacity>
     </View>
   );
 
@@ -179,6 +199,7 @@ const s = StyleSheet.create({
   hint: { fontSize: 15, color: '#64748b', marginBottom: 32, textAlign: 'center' },
   input: { backgroundColor: '#1e293b', borderRadius: 10, padding: 14, fontSize: 16, color: '#f1f5f9', marginBottom: 16, borderWidth: 1, borderColor: '#334155', width: 240, textAlign: 'center' },
   btn: { backgroundColor: '#6366f1', borderRadius: 12, padding: 16, alignItems: 'center', marginTop: 10, minWidth: 220 },
+  btnSecondary: { backgroundColor: '#1e293b', borderWidth: 1, borderColor: '#334155' },
   btnDisabled: { opacity: 0.5 },
   btnText: { color: '#fff', fontSize: 16, fontWeight: '800' },
   linkBtn: { paddingVertical: 14 },

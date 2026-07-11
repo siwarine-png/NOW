@@ -67,7 +67,14 @@ router.post('/', async (req, res) => {
   const snoozedUntil = result === 'snoozed'
     ? computeSnoozedUntil(context?.snooze_minutes ?? null, commitment.users.timezone)
     : null;
-  await sb.from('commitments').update({ snoozed_until: snoozedUntil }).eq('id', commitment_id);
+  const commitmentUpdates = { snoozed_until: snoozedUntil };
+  // cadence='once' has no notion of "tomorrow" -- nothing else in rules.js/
+  // stats.js treats it differently from 'daily' (checkedInToday is purely
+  // date-scoped), so without this a one-time task would silently resurface
+  // the very next day. Marking it completed here is what actually retires
+  // it, by dropping out of every "status = active" query everywhere else.
+  if (result === 'done' && commitment.cadence === 'once') commitmentUpdates.status = 'completed';
+  await sb.from('commitments').update(commitmentUpdates).eq('id', commitment_id);
 
   // Close any open intervention from last 24h
   const since = new Date(Date.now() - 86_400_000).toISOString();
