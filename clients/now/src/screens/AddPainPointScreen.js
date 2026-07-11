@@ -23,6 +23,15 @@ const STEP_TITLE = 0;
 const STEP_AXIS = 1;
 const STEP_RECURRENCE = 2;
 const STEP_TIME = 3;
+const STEP_TIME_MEANING = 4;
+const STEP_DURATION = 5;
+
+const DURATIONS = [
+  { label: '15 min', minutes: 15 },
+  { label: '30 min', minutes: 30 },
+  { label: '1 hour', minutes: 60 },
+  { label: '2 hours', minutes: 120 },
+];
 
 const AXES = [
   { key: 'foundation', label: 'Foundation' },
@@ -93,28 +102,53 @@ export default function AddPainPointScreen({ user, onCreated }) {
     setCustomTime(digits.length <= 2 ? digits : `${digits.slice(0, -2)}:${digits.slice(-2)}`);
   }
 
-  async function submit(finalTime) {
+  function resetAll() {
+    setStep(STEP_TITLE);
+    setCustomTitle('');
+    setIdentityAxis(null);
+    setCadence('daily');
+    setPickingTime(false);
+    setCustomTime('');
+    setTime(defaultTime());
+  }
+
+  async function createAndReset(payload) {
     if (!user?.id) return;
     setLoading(true);
     try {
       await createCommitment({
         user_id: user.id, title: customTitle.trim(), next_action: null,
-        cadence, window_start: finalTime, window_end: addMinutesToTime(finalTime, 60),
-        priority_tier: 'normal', identity_axis: identityAxis,
+        cadence, priority_tier: 'normal', identity_axis: identityAxis,
+        ...payload,
       });
-      setStep(STEP_TITLE);
-      setCustomTitle('');
-      setIdentityAxis(null);
-      setCadence('daily');
-      setPickingTime(false);
-      setCustomTime('');
-      setTime(defaultTime());
+      resetAll();
       onCreated?.();
     } catch (e) {
       showAlert("Couldn't add that", e.message);
     } finally {
       setLoading(false);
     }
+  }
+
+  // {time} is when to start — the plain "we'll nudge you around then" case.
+  function submit(finalTime) {
+    return createAndReset({ window_start: finalTime, window_end: addMinutesToTime(finalTime, 60) });
+  }
+
+  // {deadlineTime} is when it must be DONE by, not when to start -- back the
+  // notification off by the estimated duration so there's actually enough
+  // time left to finish, instead of nudging at the deadline itself. Also
+  // sets the real `deadline` field (unused by the plain start-time path)
+  // so R7_deadline_proximity's own escalation can pick this up too.
+  function submitWithDeadline(deadlineTime, durationMinutes) {
+    const startTime = addMinutesToTime(deadlineTime, -durationMinutes);
+    const [dh, dm] = deadlineTime.split(':').map(Number);
+    const deadlineDate = new Date();
+    deadlineDate.setHours(dh, dm, 0, 0);
+    return createAndReset({
+      window_start: startTime, window_end: deadlineTime,
+      deadline: deadlineDate.toISOString(),
+    });
   }
 
   if (step === STEP_AXIS) return (
@@ -144,15 +178,15 @@ export default function AddPainPointScreen({ user, onCreated }) {
 
   if (step === STEP_TIME) return (
     <View style={s.center}>
-      <Text style={s.title}>We'll nudge you{'\n'}around{'\n'}{formatDisplayTime(time)}.</Text>
+      <Text style={s.title}>What time{'\n'}are we talking about?{'\n'}{formatDisplayTime(time)}</Text>
       <Text style={s.hint}>Good?</Text>
 
       {!pickingTime ? (
         <>
-          <TouchableOpacity style={[s.btn, loading && s.btnDisabled]} disabled={loading} onPress={() => submit(time)}>
-            {loading ? <ActivityIndicator color="#fff" /> : <Text style={s.btnText}>Sounds good →</Text>}
+          <TouchableOpacity style={s.btn} onPress={() => setStep(STEP_TIME_MEANING)}>
+            <Text style={s.btnText}>Sounds good →</Text>
           </TouchableOpacity>
-          <TouchableOpacity style={s.linkBtn} onPress={() => setPickingTime(true)} disabled={loading}>
+          <TouchableOpacity style={s.linkBtn} onPress={() => setPickingTime(true)}>
             <Text style={s.linkBtnText}>Pick a different time</Text>
           </TouchableOpacity>
         </>
@@ -163,13 +197,43 @@ export default function AddPainPointScreen({ user, onCreated }) {
             keyboardType="number-pad" placeholder="e.g. 1830 for 6:30 PM" placeholderTextColor="#475569" autoFocus
           />
           <TouchableOpacity
-            style={[s.btn, loading && s.btnDisabled]} disabled={loading}
-            onPress={() => { const t = normalizeTime(customTime.trim()) || time; setTime(t); submit(t); }}
+            style={s.btn}
+            onPress={() => { const t = normalizeTime(customTime.trim()) || time; setTime(t); setStep(STEP_TIME_MEANING); }}
           >
-            {loading ? <ActivityIndicator color="#fff" /> : <Text style={s.btnText}>Set and continue →</Text>}
+            <Text style={s.btnText}>Set and continue →</Text>
           </TouchableOpacity>
         </>
       )}
+    </View>
+  );
+
+  // Does {time} mean "start around then" or "must be DONE by then"? These
+  // need very different scheduling: a deadline has to back the actual nudge
+  // off by however long the thing takes, or it fires too late to be useful
+  // (see submitWithDeadline).
+  if (step === STEP_TIME_MEANING) return (
+    <View style={s.center}>
+      <Text style={s.title}>Is {formatDisplayTime(time)}{'\n'}when you'll start —{'\n'}or the deadline to finish by?</Text>
+      <TouchableOpacity style={[s.btn, loading && s.btnDisabled]} disabled={loading} onPress={() => submit(time)}>
+        {loading ? <ActivityIndicator color="#fff" /> : <Text style={s.btnText}>I'll start around then</Text>}
+      </TouchableOpacity>
+      <TouchableOpacity style={[s.btn, s.btnSecondary]} onPress={() => setStep(STEP_DURATION)} disabled={loading}>
+        <Text style={s.btnText}>Must be done by then</Text>
+      </TouchableOpacity>
+    </View>
+  );
+
+  if (step === STEP_DURATION) return (
+    <View style={s.center}>
+      <Text style={s.title}>About how long{'\n'}will it take?</Text>
+      <Text style={s.hint}>We'll nudge you with enough time left before {formatDisplayTime(time)}.</Text>
+      <View style={s.chipGrid}>
+        {DURATIONS.map(d => (
+          <TouchableOpacity key={d.minutes} style={s.chip} disabled={loading} onPress={() => submitWithDeadline(time, d.minutes)}>
+            <Text style={s.chipText}>{d.label}</Text>
+          </TouchableOpacity>
+        ))}
+      </View>
     </View>
   );
 
