@@ -21,10 +21,11 @@ import { showAlert } from '../utils/alert';
 
 const STEP_TITLE = 0;
 const STEP_AXIS = 1;
-const STEP_RECURRENCE = 2;
-const STEP_TIME = 3;
-const STEP_TIME_MEANING = 4;
-const STEP_DURATION = 5;
+const STEP_URGENCY = 2;
+const STEP_RECURRENCE = 3;
+const STEP_TIME = 4;
+const STEP_TIME_MEANING = 5;
+const STEP_DURATION = 6;
 
 const DURATIONS = [
   { label: '15 min', minutes: 15 },
@@ -89,7 +90,7 @@ export default function AddPainPointScreen({ user, onCreated }) {
 
   function chooseAxis(axisKey) {
     setIdentityAxis(axisKey);
-    setStep(STEP_RECURRENCE);
+    setStep(STEP_URGENCY);
   }
 
   function chooseCadence(value) {
@@ -130,6 +131,17 @@ export default function AddPainPointScreen({ user, onCreated }) {
     }
   }
 
+  // "Right now" skips scheduling entirely -- priority_tier: 'critical' is
+  // the same mechanism a medication reminder uses (R9_critical_override,
+  // engine/src/engine/rules.js): it always surfaces first on NOW, ahead of
+  // the domain rotation and everything else, checked before either. No
+  // window_start means the rule matches immediately regardless of time of
+  // day, which is exactly "can't wait" -- asking for a scheduled time here
+  // would be friction against the thing that was just declared urgent.
+  function submitUrgent() {
+    return createAndReset({ cadence: 'once', priority_tier: 'critical', window_start: null, window_end: null });
+  }
+
   // {time} is when to start — the plain "we'll nudge you around then" case.
   function submit(finalTime) {
     return createAndReset({ window_start: finalTime, window_end: addMinutesToTime(finalTime, 60) });
@@ -161,6 +173,18 @@ export default function AddPainPointScreen({ user, onCreated }) {
           </TouchableOpacity>
         ))}
       </View>
+    </View>
+  );
+
+  if (step === STEP_URGENCY) return (
+    <View style={s.center}>
+      <Text style={s.title}>How urgent{'\n'}is this?</Text>
+      <TouchableOpacity style={[s.btn, loading && s.btnDisabled]} disabled={loading} onPress={submitUrgent}>
+        {loading ? <ActivityIndicator color="#fff" /> : <Text style={s.btnText}>Right now — can't wait</Text>}
+      </TouchableOpacity>
+      <TouchableOpacity style={[s.btn, s.btnSecondary]} onPress={() => setStep(STEP_RECURRENCE)} disabled={loading}>
+        <Text style={s.btnText}>Not urgent — I'll schedule it</Text>
+      </TouchableOpacity>
     </View>
   );
 
