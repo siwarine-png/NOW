@@ -1,0 +1,12 @@
+-- Until now the ONLY push notification this app ever sends is one generic
+-- daily ping at the user's global checkin_time (see scheduler.js's
+-- runPushReminderTick). A commitment's own window_start (e.g. "we'll nudge
+-- you around 6:30 PM", promised by AddPainPointScreen at creation time) was
+-- never actually wired to a real notification -- it only gated whether
+-- GET /interventions/now would surface that commitment if the app happened
+-- to be opened during that ~60-minute window. Outside it, silence, no matter
+-- how it was set up. last_notified_at is the per-commitment dedup this needs
+-- so a new scheduler tick can fire a real push at each commitment's own
+-- window_start, once per day, same "fire once, don't repeat" shape the
+-- daily checkin push already uses via users.last_push_sent_at.
+alter table commitments add column if not exists last_notified_at timestamptz;

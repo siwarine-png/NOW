@@ -103,6 +103,46 @@ async function pickCommitmentPushBody(userId, nowMin, now) {
   return best ? (best.c.next_action || best.c.title) : null;
 }
 
+// Per-commitment reminder — actually fulfills the promise made at creation
+// time ("we'll nudge you around 6:30 PM", AddPainPointScreen/onboarding's
+// anchor step) instead of leaving it as a silent window that only mattered
+// if the app happened to already be open. Fires once per commitment per
+// day, right at its own window_start -- not gated by quiet hours, same
+// reasoning as the daily checkin push below: the window_start *is* the
+// user's own explicit choice of when to be nudged, not an incidental time.
+async function runCommitmentPushTick() {
+  const { data: users } = await sb
+    .from('users')
+    .select('id, push_token, web_push_subscription, timezone')
+    .or('push_token.not.is.null,web_push_subscription.not.is.null');
+  if (!users?.length) return;
+
+  const now = new Date();
+  for (const user of users) {
+    const nowMin = nowMinutesInTz(user.timezone);
+    const { data: commitments } = await sb
+      .from('commitments').select('*')
+      .eq('user_id', user.id).eq('status', 'active').not('window_start', 'is', null);
+    if (!commitments?.length) continue;
+
+    for (const c of commitments) {
+      if (c.snoozed_until && new Date(c.snoozed_until) > now) continue;
+      const [wh, wm] = c.window_start.split(':').map(Number);
+      const startMin = wh * 60 + wm;
+      // Fire once, within the 5-minute window starting at window_start —
+      // same fixed-fire-window shape runPushReminderTick uses for checkin_time.
+      if (nowMin < startMin || nowMin >= startMin + 5) continue;
+      if (c.last_notified_at && dateKeyInTz(new Date(c.last_notified_at), user.timezone) === dateKeyInTz(now, user.timezone)) continue;
+
+      const stats = await loadStats(c.id);
+      if (stats.checkedInToday) continue;
+
+      await sendCheckinPush(user.id, user, 'Time for this', c.next_action || c.title);
+      await sb.from('commitments').update({ last_notified_at: now.toISOString() }).eq('id', c.id);
+    }
+  }
+}
+
 // Daily check-in reminder — the thing onboarding actually promises ("we'll
 // check in with you once a day around 6 PM"). Only users who registered a
 // push_token (opted in client-side) are considered; checkin_time is the
@@ -229,6 +269,7 @@ async function sendExpoPush(token, title, body) {
 function startScheduler() {
   cron.schedule('*/5 * * * *', () => {
     runSchedulerTick().catch(e => console.error('[scheduler] tick error', e.message));
+    runCommitmentPushTick().catch(e => console.error('[scheduler] commitment push tick error', e.message));
     runPushReminderTick().catch(e => console.error('[scheduler] push tick error', e.message));
     require('./nudgeEngine').runNudgeTestsTick(sb).catch(e => console.error('[scheduler] nudge tick error', e.message));
     require('./identityCheckin').runIdentityCheckinTick().catch(e => console.error('[scheduler] identity checkin tick error', e.message));
@@ -236,4 +277,4 @@ function startScheduler() {
   console.log('[scheduler] started — 5-min tick');
 }
 
-module.exports = { startScheduler, sendCheckinPush, runSchedulerTick, runPushReminderTick };
+module.exports = { startScheduler, sendCheckinPush, runSchedulerTick, runCommitmentPushTick, runPushReminderTick };
