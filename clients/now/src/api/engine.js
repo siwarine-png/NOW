@@ -150,3 +150,10 @@ export async function getIdentitySpectrum(user_id) {
   const params = new URLSearchParams({ user_id });
   return request('GET', `/identity-checkins/spectrum?${params}`, undefined, 'v2');
 }
+
+// ── Focus sessions (NowScreen's Pomodoro-style timer) ───────────────────────
+// Raw signal for a future Adaptive Execution Engine analysis -- logged once
+// per session, when it ends (time-up or cancelled), not a live feature yet.
+export async function postFocusSession(payload) {
+  return request('POST', '/focus-sessions', payload, 'v2');
+}

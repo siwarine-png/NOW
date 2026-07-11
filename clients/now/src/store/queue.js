@@ -3,7 +3,7 @@
  * Done/Snooze events are written here first, synced when connectivity returns.
  */
 import AsyncStorage from '@react-native-async-storage/async-storage';
-import { postCheckin, postSnooze, postEquivalentCheckin } from '../api/engine';
+import { postCheckin, postSnooze, postEquivalentCheckin, postFocusSession } from '../api/engine';
 
 const KEY = 'engine_queue_v1';
 
@@ -29,6 +29,8 @@ export async function flushQueue() {
         await postSnooze(item.commitment_id, item.snooze_minutes, item.intervention_id);
       } else if (item.type === 'equivalent_checkin') {
         await postEquivalentCheckin(item.equivalent_id, item.result, item.energy);
+      } else if (item.type === 'focus_session') {
+        await postFocusSession(item.payload);
       }
       item.synced = true;
       flushed++;

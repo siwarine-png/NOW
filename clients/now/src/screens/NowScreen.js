@@ -240,7 +240,13 @@ export default function NowScreen({ user, onSettings, onBack }) {
           </View>
         )}
 
-        <FocusSession />
+        <FocusSession context={{
+          userId: user?.id,
+          identityAxis: isDomainMode ? intervention.domain : null,
+          actionText: activeAction,
+          equivalentId: activeEquivalentId,
+          commitmentId: !isDomainMode ? intervention.commitment_id : null,
+        }} />
 
         {/* Friction reduction (commitment mode only) */}
         {intervention.friction_reduction && (

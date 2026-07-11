@@ -12,6 +12,8 @@
  */
 import React, { useState, useEffect, useRef } from 'react';
 import { View, Text, TouchableOpacity, StyleSheet, Platform, Vibration, AppState } from 'react-native';
+import { postFocusSession } from '../api/engine';
+import { enqueue } from '../store/queue';
 
 const DURATIONS = [
   { label: '5 min', minutes: 5 },
@@ -45,7 +47,11 @@ function alertComplete() {
   }
 }
 
-export default function FocusSession() {
+// context: { userId, identityAxis, actionText, equivalentId, commitmentId } --
+// whatever's currently shown on NowScreen when the session is started, so
+// the logged row records what was actually being focused on. All optional:
+// a session with no user_id simply never logs (e.g. dev/no-account state).
+export default function FocusSession({ context }) {
   const [state, setState] = useState('idle'); // idle | picking | running | done
   const [totalSeconds, setTotalSeconds] = useState(0);
   const [secondsLeft, setSecondsLeft] = useState(0);
@@ -53,6 +59,9 @@ export default function FocusSession() {
   const intervalRef = useRef(null);
   const leftCountRef = useRef(0);
   const wasActiveRef = useRef(true);
+  const startedAtRef = useRef(null);
+  const contextRef = useRef(context);
+  contextRef.current = context;
 
   useEffect(() => {
     if (state !== 'running') return undefined;
@@ -63,6 +72,7 @@ export default function FocusSession() {
           setLeftCount(leftCountRef.current);
           setState('done');
           alertComplete();
+          logSession('completed', totalSeconds, totalSeconds);
           return 0;
         }
         return s - 1;
@@ -82,10 +92,35 @@ export default function FocusSession() {
     return () => sub.remove();
   }, [state]);
 
+  // Best-effort, same offline-safe pattern as checkins/snoozes -- a failed
+  // log falls back to the local queue rather than being silently dropped.
+  async function logSession(endedReason, plannedSeconds, actualSeconds) {
+    const ctx = contextRef.current || {};
+    if (!ctx.userId) return;
+    const payload = {
+      user_id: ctx.userId,
+      identity_axis: ctx.identityAxis || null,
+      action_text: ctx.actionText || null,
+      equivalent_id: ctx.equivalentId || null,
+      commitment_id: ctx.commitmentId || null,
+      planned_seconds: plannedSeconds,
+      actual_seconds: actualSeconds,
+      started_at: new Date(startedAtRef.current).toISOString(),
+      ended_reason: endedReason,
+      left_count: leftCountRef.current,
+    };
+    try {
+      await postFocusSession(payload);
+    } catch {
+      await enqueue({ type: 'focus_session', payload });
+    }
+  }
+
   function start(minutes) {
     const secs = minutes * 60;
     leftCountRef.current = 0;
     wasActiveRef.current = true;
+    startedAtRef.current = Date.now();
     setTotalSeconds(secs);
     setSecondsLeft(secs);
     setState('running');
@@ -93,6 +128,9 @@ export default function FocusSession() {
 
   function cancel() {
     clearInterval(intervalRef.current);
+    const elapsed = totalSeconds - secondsLeft;
+    setLeftCount(leftCountRef.current);
+    logSession('cancelled', totalSeconds, elapsed);
     setState('idle');
   }
 
