@@ -153,7 +153,14 @@ export default function OnboardingScreen({ onComplete }) {
             onComplete(user);
             return;
           }
-        } catch (e) { /* lookup failure just falls through to normal onboarding */ }
+          console.log('[onboarding] lookupUser found no existing account for', `google_${profile.id}`);
+        } catch (e) {
+          // Falls through to normal onboarding either way, but silently was
+          // indistinguishable from "genuinely new user" -- logged so a
+          // returning account that unexpectedly re-onboards is diagnosable
+          // instead of a silent dead end.
+          console.error('[onboarding] lookupUser failed, falling back to full wizard', e.message);
+        }
         setStep(STEP_ANCHOR);
       })
       .catch(() => showAlert('Sign-in failed', 'Could not fetch your Google profile. Try again.'))
