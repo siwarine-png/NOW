@@ -18,9 +18,62 @@
  * matching registered commitment) is folded into flexible rather than
  * asserted either way, since absence of a registered commitment isn't
  * proof the time was actually free.
+ *
+ * logged_hours_per_week is a second, separate signal: real elapsed time
+ * from axis-tagged commitments (see migration 016) actually checked in
+ * done, over the same rolling window. Deliberately NOT merged into
+ * current_hours_per_week's point-sample proportion -- that estimate's math
+ * assumes samples land at effectively random moments, and a burst of
+ * completed-task events doesn't share that property (finishing 3 Finance
+ * commitments in one sitting isn't 3x the point-sample evidence a random
+ * ping would represent, and could easily double-count a moment a sample
+ * happened to also catch). Reported alongside as ground truth for whatever
+ * axis-tagged commitments actually exist, not a replacement for the
+ * sampling estimate covering everything else.
  */
 const sb = require('../db/client');
 const { AXES, ROLLING_WINDOW_DAYS, wakingMinutes } = require('./identityCheckin');
+
+function windowMinutes(windowStart, windowEnd) {
+  const [sh, sm] = windowStart.split(':').map(Number);
+  const [eh, em] = windowEnd.split(':').map(Number);
+  let diff = (eh * 60 + em) - (sh * 60 + sm);
+  if (diff < 0) diff += 1440; // overnight window
+  return diff;
+}
+
+async function computeLoggedHoursPerWeek(userId, windowStart) {
+  const { data: tagged } = await sb
+    .from('commitments')
+    .select('id, identity_axis, window_start, window_end')
+    .eq('user_id', userId)
+    .not('identity_axis', 'is', null)
+    .not('window_start', 'is', null)
+    .not('window_end', 'is', null);
+  if (!tagged?.length) return {};
+
+  const byId = new Map(tagged.map(c => [c.id, c]));
+  const { data: doneCheckins } = await sb
+    .from('checkins')
+    .select('commitment_id, occurred_at')
+    .in('commitment_id', [...byId.keys()])
+    .eq('result', 'done')
+    .gte('occurred_at', windowStart.toISOString());
+
+  const weeks = ROLLING_WINDOW_DAYS / 7;
+  const minutesByAxis = {};
+  for (const chk of doneCheckins || []) {
+    const c = byId.get(chk.commitment_id);
+    if (!c) continue;
+    minutesByAxis[c.identity_axis] = (minutesByAxis[c.identity_axis] || 0) + windowMinutes(c.window_start, c.window_end);
+  }
+
+  const result = {};
+  for (const axis of Object.keys(minutesByAxis)) {
+    result[axis] = Math.round((minutesByAxis[axis] / 60 / weeks) * 10) / 10;
+  }
+  return result;
+}
 
 async function computeCurrentHoursPerWeek(userId) {
   const { data: user } = await sb
@@ -40,6 +93,7 @@ async function computeCurrentHoursPerWeek(userId) {
 
   const total = checkins?.length || 0;
   const wakingHoursPerWeek = (wakingMinutes(user.wake_time, user.sleep_time) / 60) * 7;
+  const logged = await computeLoggedHoursPerWeek(userId, windowStart);
 
   const axes = {};
   for (const axis of AXES) {
@@ -49,6 +103,7 @@ async function computeCurrentHoursPerWeek(userId) {
       sample_count: axisCheckins.length,
       current_hours_per_week: total ? Math.round((axisCheckins.length / total) * wakingHoursPerWeek * 10) / 10 : null,
       fixed_hours_per_week: total ? Math.round((fixedCount / total) * wakingHoursPerWeek * 10) / 10 : null,
+      logged_hours_per_week: logged[axis] || 0,
     };
   }
 

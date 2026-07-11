@@ -84,6 +84,9 @@ function AxisBar({ item }) {
           <Text style={s.axisLabel}>{item.label}</Text>
         </View>
         <Text style={s.gapNote}>Still collecting data — answer a few more check-ins to see this.</Text>
+        {item.logged_hours_per_week > 0 && (
+          <Text style={s.loggedNote}>{item.logged_hours_per_week}h logged this month from completed tasks tagged to this axis</Text>
+        )}
       </View>
     );
   }
@@ -120,6 +123,9 @@ function AxisBar({ item }) {
       {item.fixed_hours_per_week > 0 && (
         <Text style={s.fixedNote}>{item.fixed_hours_per_week}h of that is fixed/non-negotiable time</Text>
       )}
+      {item.logged_hours_per_week > 0 && (
+        <Text style={s.loggedNote}>{item.logged_hours_per_week}h logged this month from completed tasks tagged to this axis</Text>
+      )}
     </View>
   );
 }
@@ -148,6 +154,7 @@ export default function IdentityScreen({ onBack, user }) {
           current_hours_per_week: real.axes[item.axis]?.current_hours_per_week ?? item.current_hours_per_week,
           fixed_hours_per_week: real.axes[item.axis]?.fixed_hours_per_week ?? 0,
           sample_count: real.axes[item.axis]?.sample_count ?? 0,
+          logged_hours_per_week: real.axes[item.axis]?.logged_hours_per_week ?? 0,
         }));
       } catch (e) { /* keep the mock fallback rather than a broken screen */ }
     }
@@ -326,6 +333,7 @@ const s = StyleSheet.create({
 
   gapNote: { fontSize: 12, color: '#94a3b8', marginTop: 8 },
   fixedNote: { fontSize: 11, color: '#64748b', marginTop: 4 },
+  loggedNote: { fontSize: 11, color: '#818cf8', marginTop: 4 },
 
   journalSection: { marginTop: 24 },
   journalLabel: { fontSize: 13, fontWeight: '800', color: '#f1f5f9', marginBottom: 2 },
