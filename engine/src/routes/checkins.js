@@ -76,6 +76,18 @@ router.post('/', async (req, res) => {
   if (result === 'done' && commitment.cadence === 'once') commitmentUpdates.status = 'completed';
   await sb.from('commitments').update(commitmentUpdates).eq('id', commitment_id);
 
+  // A decomposed step just finished -- advance the next queued sibling into
+  // the one thing that's actually surfaceable, same "only the current
+  // smallest step shows" rule that already hides an open-children parent
+  // (see GET /interventions/now). Queued steps sit at status 'paused' (no
+  // new status value needed) until it's their turn; a 'daily' sibling (an
+  // ongoing habit reached at the end of a checklist, e.g. "track views
+  // daily") never completes on its own, so the chain simply stays there --
+  // that's correct, not a bug, for a step meant to run indefinitely.
+  if (commitmentUpdates.status === 'completed' && commitment.parent_commitment_id) {
+    await advanceSiblingChain(commitment.parent_commitment_id);
+  }
+
   // Close any open intervention from last 24h
   const since = new Date(Date.now() - 86_400_000).toISOString();
   const outcome = (result === 'done' || result === 'partial') ? 'acted' : 'ignored';
@@ -101,6 +113,29 @@ router.post('/', async (req, res) => {
     top_factor,
   });
 });
+
+// Activates the earliest still-'paused' sibling under the same parent
+// (created_at order), so a multi-step checklist surfaces exactly one step
+// at a time instead of dumping all of them into the rotation together. If
+// nothing's left to queue, and every sibling is now completed/abandoned,
+// the parent itself is marked done -- closing the loop on the whole project.
+async function advanceSiblingChain(parentId) {
+  const { data: siblings } = await sb
+    .from('commitments')
+    .select('id, status')
+    .eq('parent_commitment_id', parentId)
+    .order('created_at', { ascending: true });
+  if (!siblings?.length) return;
+
+  const nextQueued = siblings.find(s => s.status === 'paused');
+  if (nextQueued) {
+    await sb.from('commitments').update({ status: 'active' }).eq('id', nextQueued.id);
+    return;
+  }
+
+  const allDone = siblings.every(s => s.status === 'completed' || s.status === 'abandoned');
+  if (allDone) await sb.from('commitments').update({ status: 'completed' }).eq('id', parentId);
+}
 
 // Engine v8: checkins against a domain equivalent instead of a commitment.
 // No commitment-style stats/risk/intervention-closing here — that machinery

@@ -64,7 +64,17 @@ router.get('/today', async (req, res) => {
   const { data: user } = await sb.from('users').select('id, timezone').eq('id', user_id).eq('app_id', req.app_id).single();
   if (!user) return res.status(404).json({ error: 'User not found' });
 
-  const { data: commitments } = await sb.from('commitments').select('*').eq('user_id', user_id).eq('status', 'active');
+  const { data: allCommitments } = await sb.from('commitments').select('*').eq('user_id', user_id).eq('status', 'active');
+  // Same "only the current smallest step shows" rule GET /interventions/now
+  // already applies -- a parent with an open (active) child is never itself
+  // surfaceable, here either. Without this, a decomposed project (e.g. a
+  // multi-step checklist under one parent_commitment_id) would show both the
+  // umbrella task AND its current step as separate completable rows, and
+  // tapping Done on the umbrella would prematurely close the whole thing.
+  const parentIdsWithOpenChildren = new Set(
+    (allCommitments || []).filter(c => c.parent_commitment_id).map(c => c.parent_commitment_id)
+  );
+  const commitments = (allCommitments || []).filter(c => !parentIdsWithOpenChildren.has(c.id));
   const nowMin = nowMinutesInTz(user.timezone);
 
   const earlier_today = [], happening_now = [], coming_up = [], anytime = [];
