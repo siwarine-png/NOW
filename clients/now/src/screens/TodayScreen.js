@@ -44,6 +44,41 @@ function axisLabel(axis) {
   return axis.charAt(0).toUpperCase() + axis.slice(1);
 }
 
+// A "Morning Routine" isn't its own concept anywhere server-side -- no new
+// field, no migration. It's just Foundation-axis commitments whose window
+// starts before noon, grouped into one glanceable card instead of scattered
+// across the Earlier/Happening/Coming-up buckets below. Purely a client-side
+// read of data GET /commitments/today already returns.
+function isMorningFoundation(item) {
+  if (item.identity_axis !== 'foundation' || !item.window_start) return false;
+  const hour = Number(item.window_start.split(':')[0]);
+  return hour < 12;
+}
+
+function MorningRoutineCard({ items, onDone, acting }) {
+  if (!items.length) return null;
+  const doneCount = items.filter(i => i.done).length;
+  return (
+    <View style={s.morningCard}>
+      <View style={s.morningHeader}>
+        <Text style={s.morningTitle}>🌅 Morning routine</Text>
+        <Text style={s.morningCount}>{doneCount}/{items.length}</Text>
+      </View>
+      {items.map(item => (
+        <TouchableOpacity
+          key={item.commitment_id}
+          style={s.morningItem}
+          disabled={item.done || acting}
+          onPress={() => onDone(item.commitment_id)}
+        >
+          <Text style={[s.morningCheck, item.done && s.morningCheckDone]}>{item.done ? '✓' : '○'}</Text>
+          <Text style={[s.morningItemText, item.done && s.morningItemTextDone]}>{item.title}</Text>
+        </TouchableOpacity>
+      ))}
+    </View>
+  );
+}
+
 function Row({ item, onDone, acting }) {
   return (
     <View style={s.row}>
@@ -123,6 +158,13 @@ export default function TodayScreen({ user, onOpenNow, onSettings }) {
   const totalCount = schedule?.total_count ?? 0;
   const segments = Array.from({ length: Math.max(totalCount, 1) }, (_, i) => i < doneCount);
 
+  const morningItems = schedule ? [
+    ...(schedule.sections.earlier_today || []),
+    ...(schedule.sections.happening_now || []),
+    ...(schedule.sections.coming_up || []),
+    ...(schedule.sections.anytime || []),
+  ].filter(isMorningFoundation) : [];
+
   return (
     <View style={s.screen}>
       <ScrollView contentContainerStyle={s.scroll}>
@@ -146,6 +188,8 @@ export default function TodayScreen({ user, onOpenNow, onSettings }) {
         )}
 
         {loading && !doNow ? <ActivityIndicator color="#6366f1" style={{ marginTop: 24 }} /> : null}
+
+        <MorningRoutineCard items={morningItems} onDone={handleDone} acting={acting} />
 
         {doNow && doNow.state !== 'clear' && (
           <TouchableOpacity style={s.doNowCard} onPress={onOpenNow}>
@@ -198,4 +242,13 @@ const s = StyleSheet.create({
   doneBtn: { borderWidth: 1, borderColor: '#334155', borderRadius: 10, paddingVertical: 6, paddingHorizontal: 12 },
   doneBtnText: { color: '#94a3b8', fontSize: 12, fontWeight: '700' },
   doneBadge: { color: '#34d399', fontSize: 12, fontWeight: '700' },
+  morningCard: { backgroundColor: '#1e293b', borderRadius: 16, padding: 16, marginTop: 20 },
+  morningHeader: { flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center', marginBottom: 10 },
+  morningTitle: { fontSize: 15, fontWeight: '800', color: '#f1f5f9' },
+  morningCount: { fontSize: 13, fontWeight: '700', color: '#64748b' },
+  morningItem: { flexDirection: 'row', alignItems: 'center', paddingVertical: 8 },
+  morningCheck: { fontSize: 18, color: '#475569', marginRight: 10, width: 22, textAlign: 'center' },
+  morningCheckDone: { color: '#34d399' },
+  morningItemText: { fontSize: 14, fontWeight: '600', color: '#f1f5f9' },
+  morningItemTextDone: { color: '#64748b', textDecorationLine: 'line-through' },
 });
