@@ -65,6 +65,15 @@ function sleepDurationHours(sleepTime, wakeTime) {
 // overwritten with real data from getIdentitySpectrum once it loads.
 const MOCK_SPECTRUM = {
   axes: [
+    // Foundation used to be shown only via the sleep-schedule box below, with
+    // no bar of its own -- inconsistent with the other 5 axes and easy to
+    // misread as "not tracked." It's sampled by identity_checkins exactly
+    // like the rest (see identityCheckin.js's AXES), just never rendered
+    // the same way. desired_hours_per_week here is a placeholder same as
+    // everywhere else in this mock (see header comment) -- Foundation's real
+    // desired figure should eventually be prescribed, not user-set, per the
+    // spec, which still isn't built.
+    { axis: 'foundation', label: 'Foundation', desired_hours_per_week: 10, current_hours_per_week: 8 },
     { axis: 'relationships', label: 'Relationships', floor_hours_per_week: 3, desired_hours_per_week: 18, current_hours_per_week: 12 },
     { axis: 'achievement', label: 'Achievement', desired_hours_per_week: 32, current_hours_per_week: 22.5 },
     { axis: 'finance', label: 'Finance', floor_hours_per_week: 2, desired_hours_per_week: 8, current_hours_per_week: 6.5 },
@@ -120,6 +129,11 @@ function AxisBar({ item }) {
       <Text style={s.gapNote}>
         {onTrack ? '✓ on track this week' : `${gap.toFixed(1)}h short of your own goal`}
       </Text>
+      {item.low_confidence && (
+        <Text style={s.lowConfidenceNote}>
+          Based on only {item.sample_count} check-in{item.sample_count === 1 ? '' : 's'} so far — this estimate will settle down with more data.
+        </Text>
+      )}
       {item.fixed_hours_per_week > 0 && (
         <Text style={s.fixedNote}>{item.fixed_hours_per_week}h of that is fixed/non-negotiable time</Text>
       )}
@@ -155,6 +169,7 @@ export default function IdentityScreen({ onBack, user }) {
           fixed_hours_per_week: real.axes[item.axis]?.fixed_hours_per_week ?? 0,
           sample_count: real.axes[item.axis]?.sample_count ?? 0,
           logged_hours_per_week: real.axes[item.axis]?.logged_hours_per_week ?? 0,
+          low_confidence: real.axes[item.axis]?.low_confidence ?? false,
         }));
       } catch (e) { /* keep the mock fallback rather than a broken screen */ }
     }
@@ -334,6 +349,7 @@ const s = StyleSheet.create({
   gapNote: { fontSize: 12, color: '#94a3b8', marginTop: 8 },
   fixedNote: { fontSize: 11, color: '#64748b', marginTop: 4 },
   loggedNote: { fontSize: 11, color: '#818cf8', marginTop: 4 },
+  lowConfidenceNote: { fontSize: 11, color: '#f59e0b', marginTop: 4 },
 
   journalSection: { marginTop: 24 },
   journalLabel: { fontSize: 13, fontWeight: '800', color: '#f1f5f9', marginBottom: 2 },
