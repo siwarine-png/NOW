@@ -23,10 +23,24 @@ export function webPushSupported() {
     && typeof window !== 'undefined' && 'PushManager' in window && !!VAPID_PUBLIC_KEY;
 }
 
+// navigator.serviceWorker.getRegistration() can return undefined for a
+// beat after page load -- registration happens async, on the window 'load'
+// event (see scripts/patch-web-build.js's injected script), so a component
+// mounting around the same time can race it and read "no subscription" even
+// when one genuinely exists. That false read is exactly what made the
+// Settings toggle look like it "comes and goes" across app opens: the
+// server-side web_push_subscription and the browser's actual subscription
+// were both fine, only this status check was flaky. .ready waits
+// indefinitely for an active worker instead of sampling registration state
+// at an arbitrary moment, which subscribeToWebPush below already relied on.
 export async function getWebPushSubscription() {
   if (!webPushSupported()) return null;
-  const reg = await navigator.serviceWorker.getRegistration();
-  return reg ? reg.pushManager.getSubscription() : null;
+  try {
+    const reg = await navigator.serviceWorker.ready;
+    return reg.pushManager.getSubscription();
+  } catch (e) {
+    return null;
+  }
 }
 
 export async function subscribeToWebPush(userId) {
