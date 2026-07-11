@@ -77,6 +77,59 @@ router.get('/now', async (req, res) => {
     });
   }
 
+  // A non-critical commitment whose window is open RIGHT NOW gets a chance
+  // to interrupt the domain rotation below. Without this, any user with
+  // domain data (nearly everyone, since it's the onboarding default) would
+  // never see a commitment added later via "I'm Stuck -> Something new to
+  // track" on the NOW screen at all -- the domain branch below returns
+  // unconditionally for them, so a specific, time-boxed task the user
+  // explicitly asked for help with would sit invisible outside of Today's
+  // schedule list forever. Scoped to "happening now" (isWithinWindow) only --
+  // the same set scheduler.js's runCommitmentPushTick uses to decide when to
+  // push a notification for one of these -- so getting nudged for a task and
+  // then opening the app actually shows that task, not a generic domain pick.
+  const dueNow = surfaceable.filter(c =>
+    c.priority_tier !== 'critical' &&
+    (!c.snoozed_until || new Date(c.snoozed_until) <= new Date()) &&
+    isWithinWindow(nowMin, c.window_start, c.window_end)
+  );
+  if (dueNow.length) {
+    const scored = (await Promise.all(dueNow.map(async c => {
+      const stats = await loadStats(c.id);
+      if (stats.checkedInToday) return null;
+      const { score } = scoreRisk(c, stats);
+      return { commitment: c, stats, score };
+    }))).filter(Boolean).sort((a, b) => b.score - a.score);
+
+    for (const { commitment: c, stats, score } of scored) {
+      const ctx = { commitment: c, stats, energy: energyNum, checkedInToday: false, nowMin, context: context || null };
+      const result = evaluate(ctx);
+      if (!result) continue;
+
+      const { data: intervention } = await sb
+        .from('interventions')
+        .insert({ commitment_id: c.id, rule_id: result.rule_id, payload: result.payload })
+        .select().single();
+
+      log(req.app_id, user_id, 'intervention.issued', {
+        intervention_id: intervention?.id, rule_id: result.rule_id, commitment_id: c.id,
+      });
+
+      return res.json({
+        commitment_id: c.id,
+        action: result.payload.action,
+        framing: result.payload.framing,
+        message: result.payload.message,
+        friction_reduction: result.payload.friction_reduction || null,
+        why_this: result.payload.why_this,
+        risk: Math.round(score * 100) / 100,
+        rule_id: result.rule_id,
+        intervention_id: intervention?.id,
+        notify_partner_flag: result.payload.notify_partner_flag || false,
+      });
+    }
+  }
+
   // Engine v8: the domain/outcome_equivalents system takes over for any user
   // who has entered it at all — this is how MVP1-SPEC-v2's zero-typing
   // onboarding works, since it seeds equivalents and never creates a
