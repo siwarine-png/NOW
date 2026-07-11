@@ -24,6 +24,8 @@ export default function SettingsScreen({ onBack, onDeleteAccount, onSignOut }) {
   const [user, setUser] = useState(null);
   const [notifEnabled, setNotifEnabled] = useState(false);
   const [deleting, setDeleting] = useState(false);
+  const [deleteConfirmOpen, setDeleteConfirmOpen] = useState(false);
+  const [deleteConfirmText, setDeleteConfirmText] = useState('');
   const [signingOut, setSigningOut] = useState(false);
   const [appOpenStatus, setAppOpenStatus] = useState(null);
   const [medStatus, setMedStatus] = useState(null);
@@ -139,35 +141,40 @@ export default function SettingsScreen({ onBack, onDeleteAccount, onSignOut }) {
     );
   }
 
-  function confirmDelete() {
-    showAlert(
-      'Delete all data',
-      'This permanently erases your account and all check-in history from our servers. This cannot be undone.',
-      [
-        { text: 'Cancel', style: 'cancel' },
-        { text: 'Delete', style: 'destructive', onPress: async () => {
-          setDeleting(true);
-          try {
-            if (user?.id) await deleteAccount(user.id);
-            await clearAll();
-            onDeleteAccount?.();
-          } catch (e) {
-            // A stale local session (e.g. pointing at a user from before a
-            // database migration) 404s here -- there's nothing server-side
-            // to delete, but the user is still stuck with a broken local
-            // session unless we clear it anyway instead of just erroring.
-            if (String(e.message || '').toLowerCase().includes('not found')) {
-              await clearAll();
-              onDeleteAccount?.();
-            } else {
-              showAlert("Couldn't delete", e.message || 'Check your connection and try again.');
-            }
-          } finally {
-            setDeleting(false);
-          }
-        }},
-      ]
-    );
+  // Deliberately NOT a showAlert() confirm -- on web that falls back to the
+  // browser's window.confirm(), which shows generic "OK"/"Cancel" chrome
+  // with no custom button labels at all (react-native-web's Alert.alert is
+  // a no-op, see utils/alert.js). A reflexive OK click there looks
+  // identical whether it's confirming Sign Out or Delete, which is exactly
+  // how a real account got permanently erased earlier. Deleting requires
+  // actually typing a confirmation phrase instead -- something a stray tap
+  // or a reflexive dismiss can't do by accident.
+  function startDeleteConfirm() {
+    setDeleteConfirmText('');
+    setDeleteConfirmOpen(true);
+  }
+
+  async function performDelete() {
+    setDeleting(true);
+    try {
+      if (user?.id) await deleteAccount(user.id);
+      await clearAll();
+      onDeleteAccount?.();
+    } catch (e) {
+      // A stale local session (e.g. pointing at a user from before a
+      // database migration) 404s here -- there's nothing server-side
+      // to delete, but the user is still stuck with a broken local
+      // session unless we clear it anyway instead of just erroring.
+      if (String(e.message || '').toLowerCase().includes('not found')) {
+        await clearAll();
+        onDeleteAccount?.();
+      } else {
+        showAlert("Couldn't delete", e.message || 'Check your connection and try again.');
+      }
+    } finally {
+      setDeleting(false);
+      setDeleteConfirmOpen(false);
+    }
   }
 
   return (
@@ -245,11 +252,40 @@ export default function SettingsScreen({ onBack, onDeleteAccount, onSignOut }) {
           </TouchableOpacity>
         </Section>
 
-        <Section label="Data">
-          <TouchableOpacity style={s.dangerBtn} onPress={confirmDelete} disabled={deleting}>
-            {deleting ? <ActivityIndicator color="#dc2626" /> : <Text style={s.dangerText}>Delete all my data</Text>}
-          </TouchableOpacity>
-        </Section>
+        <View style={s.dangerZone}>
+          <Text style={s.dangerZoneLabel}>⚠ Danger zone</Text>
+          {!deleteConfirmOpen ? (
+            <TouchableOpacity style={s.dangerBtn} onPress={startDeleteConfirm}>
+              <Text style={s.dangerText}>Delete all my data</Text>
+            </TouchableOpacity>
+          ) : (
+            <>
+              <Text style={s.dangerWarning}>
+                This permanently erases your account and all check-in history from our servers. This cannot be undone.
+              </Text>
+              <Text style={s.dangerWarning}>Type DELETE below to confirm.</Text>
+              <TextInput
+                style={s.deleteInput}
+                value={deleteConfirmText}
+                onChangeText={setDeleteConfirmText}
+                placeholder="DELETE"
+                placeholderTextColor="#7f1d1d"
+                autoCapitalize="characters"
+                autoCorrect={false}
+              />
+              <TouchableOpacity
+                style={[s.dangerBtn, (deleting || deleteConfirmText.trim().toUpperCase() !== 'DELETE') && s.dangerBtnDisabled]}
+                onPress={performDelete}
+                disabled={deleting || deleteConfirmText.trim().toUpperCase() !== 'DELETE'}
+              >
+                {deleting ? <ActivityIndicator color="#dc2626" /> : <Text style={s.dangerText}>Permanently delete</Text>}
+              </TouchableOpacity>
+              <TouchableOpacity style={s.linkBtn} onPress={() => setDeleteConfirmOpen(false)} disabled={deleting}>
+                <Text style={s.linkBtnText}>Cancel</Text>
+              </TouchableOpacity>
+            </>
+          )}
+        </View>
 
         <Text style={s.version}>NOW v1.0.0 · Powered by ENGINE</Text>
       </ScrollView>
@@ -310,8 +346,15 @@ const s = StyleSheet.create({
   rowLabel: { fontSize: 15, color: '#f1f5f9', fontWeight: '500' },
   note: { fontSize: 12, color: '#475569', lineHeight: 17, marginTop: 10 },
   detail: { fontSize: 13, color: '#64748b', marginBottom: 6, fontFamily: 'monospace' },
+  dangerZone: { marginTop: 24, marginBottom: 28, padding: 16, borderRadius: 14, borderWidth: 1, borderColor: '#7f1d1d', backgroundColor: '#1a0e0e' },
+  dangerZoneLabel: { fontSize: 11, fontWeight: '800', color: '#dc2626', letterSpacing: 1, textTransform: 'uppercase', marginBottom: 12 },
+  dangerWarning: { fontSize: 12, color: '#fca5a5', lineHeight: 17, marginBottom: 10 },
+  deleteInput: { backgroundColor: '#0f172a', borderRadius: 8, padding: 12, fontSize: 15, color: '#f1f5f9', marginBottom: 12, borderWidth: 1, borderColor: '#7f1d1d', textAlign: 'center', fontWeight: '800', letterSpacing: 2 },
   dangerBtn: { backgroundColor: '#1e293b', borderRadius: 10, padding: 14, alignItems: 'center', borderWidth: 1, borderColor: '#dc2626' },
+  dangerBtnDisabled: { opacity: 0.4 },
   dangerText: { color: '#dc2626', fontSize: 14, fontWeight: '700' },
+  linkBtn: { alignItems: 'center', paddingVertical: 10, marginTop: 4 },
+  linkBtnText: { color: '#94a3b8', fontSize: 13, fontWeight: '700' },
   secondaryBtn: { backgroundColor: '#1e293b', borderRadius: 10, padding: 14, alignItems: 'center', borderWidth: 1, borderColor: '#6366f1', marginTop: 8 },
   secondaryBtnText: { color: '#a5b4fc', fontSize: 14, fontWeight: '700' },
   overrideInput: { backgroundColor: '#1e293b', borderRadius: 8, padding: 10, fontSize: 14, color: '#f1f5f9', marginTop: 8, borderWidth: 1, borderColor: '#334155' },
