@@ -20,6 +20,7 @@ import { getInterventionNow, postCheckin, postSnooze, postEquivalentCheckin } fr
 import { enqueue, flushQueue } from '../store/queue';
 import { cacheIntervention, getCachedIntervention, clearIntervention } from '../store/session';
 import TimerCountdown from '../components/TimerCountdown';
+import FocusSession from '../components/FocusSession';
 
 const SNOOZE_OPTIONS = [
   { label: '10 min', minutes: 10 },
@@ -238,6 +239,8 @@ export default function NowScreen({ user, onSettings, onBack }) {
             ) : null}
           </View>
         )}
+
+        <FocusSession />
 
         {/* Friction reduction (commitment mode only) */}
         {intervention.friction_reduction && (
