@@ -86,6 +86,16 @@ export async function createCommitment(payload) {
   return request('POST', '/commitments', payload);
 }
 
+// Used by Today's per-row "Remove" action -- a duplicate or no-longer-wanted
+// commitment is set to status 'abandoned' (not deleted) via the existing
+// PATCH /commitments/:id, which already allows updating status
+// (engine/src/routes/commitments.js). 'abandoned' just drops it out of every
+// active-commitment query (Today, NOW, the push scheduler) without losing
+// its history.
+export async function updateCommitment(commitment_id, updates) {
+  return request('PATCH', `/commitments/${commitment_id}`, updates);
+}
+
 // ── Check-ins ──────────────────────────────────────────────────────────────
 export async function postCheckin(commitment_id, result, energy, intervention_id) {
   return request('POST', '/checkins', {

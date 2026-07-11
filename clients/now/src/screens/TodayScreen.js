@@ -12,7 +12,7 @@
  */
 import React, { useState, useEffect, useCallback } from 'react';
 import { View, Text, TouchableOpacity, StyleSheet, ActivityIndicator, ScrollView, AppState } from 'react-native';
-import { getInterventionNow, getTodaySchedule, postCheckin, getIdentityCheckinStatus } from '../api/engine';
+import { getInterventionNow, getTodaySchedule, postCheckin, getIdentityCheckinStatus, updateCommitment } from '../api/engine';
 import { enqueue } from '../store/queue';
 import IdentityCheckinPrompt, { shouldShowIdentityCheckin } from '../components/IdentityCheckinPrompt';
 
@@ -79,13 +79,13 @@ function MorningRoutineCard({ items, onDone, acting }) {
   );
 }
 
-function Row({ item, onDone, acting }) {
+function Row({ item, onDone, onRemove, acting }) {
   return (
     <View style={s.row}>
       <View style={s.rowBar} />
       <View style={s.rowBody}>
-        <Text style={s.rowTitle}>{item.title}</Text>
-        <Text style={s.rowTime}>
+        <Text style={[s.rowTitle, item.done && s.rowTitleDone]}>{item.title}</Text>
+        <Text style={[s.rowTime, item.done && s.rowTimeDone]}>
           {item.window_start ? `${fmtTime(item.window_start)}–${fmtTime(item.window_end)}` : 'Anytime'}
           {item.minutes_until != null ? ` · ${fmtMinutesUntil(item.minutes_until)}` : ''}
           {item.identity_axis ? ` · ${axisLabel(item.identity_axis)}` : ''}
@@ -94,20 +94,25 @@ function Row({ item, onDone, acting }) {
       {item.done ? (
         <Text style={s.doneBadge}>✓ Done</Text>
       ) : (
-        <TouchableOpacity style={s.doneBtn} disabled={acting} onPress={() => onDone(item.commitment_id)}>
-          <Text style={s.doneBtnText}>✓ Done</Text>
-        </TouchableOpacity>
+        <View style={s.rowActions}>
+          <TouchableOpacity style={s.doneBtn} disabled={acting} onPress={() => onDone(item.commitment_id)}>
+            <Text style={s.doneBtnText}>✓ Done</Text>
+          </TouchableOpacity>
+          <TouchableOpacity disabled={acting} onPress={() => onRemove(item.commitment_id)}>
+            <Text style={s.removeBtnText}>Remove</Text>
+          </TouchableOpacity>
+        </View>
       )}
     </View>
   );
 }
 
-function Section({ label, items, onDone, acting }) {
+function Section({ label, items, onDone, onRemove, acting }) {
   if (!items?.length) return null;
   return (
     <View style={s.section}>
       <Text style={s.sectionLabel}>{label}</Text>
-      {items.map(item => <Row key={item.commitment_id} item={item} onDone={onDone} acting={acting} />)}
+      {items.map(item => <Row key={item.commitment_id} item={item} onDone={onDone} onRemove={onRemove} acting={acting} />)}
     </View>
   );
 }
@@ -150,6 +155,20 @@ export default function TodayScreen({ user, onOpenNow, onSettings }) {
     } catch {
       await enqueue({ type: 'checkin', commitment_id: commitmentId, result: 'done', energy: null, intervention_id: null });
     }
+    setActing(false);
+    load();
+  }
+
+  // "Remove" -- for duplicates from re-attempting a time/title, or anything
+  // no longer wanted. Sets status to 'abandoned' rather than deleting, so it
+  // just drops out of every active-commitment query (here, NOW, the push
+  // scheduler) without losing its history. No confirmation dialog: unlike
+  // account deletion this is trivially low-stakes and specific to one item.
+  async function handleRemove(commitmentId) {
+    setActing(true);
+    try {
+      await updateCommitment(commitmentId, { status: 'abandoned' });
+    } catch { /* best-effort -- worst case it just shows up again until retried */ }
     setActing(false);
     load();
   }
@@ -200,10 +219,10 @@ export default function TodayScreen({ user, onOpenNow, onSettings }) {
 
         {schedule && (
           <>
-            <Section label="Earlier today" items={schedule.sections.earlier_today} onDone={handleDone} acting={acting} />
-            <Section label="Happening now" items={schedule.sections.happening_now} onDone={handleDone} acting={acting} />
-            <Section label="Coming up" items={schedule.sections.coming_up} onDone={handleDone} acting={acting} />
-            <Section label="Anytime" items={schedule.sections.anytime} onDone={handleDone} acting={acting} />
+            <Section label="Earlier today" items={schedule.sections.earlier_today} onDone={handleDone} onRemove={handleRemove} acting={acting} />
+            <Section label="Happening now" items={schedule.sections.happening_now} onDone={handleDone} onRemove={handleRemove} acting={acting} />
+            <Section label="Coming up" items={schedule.sections.coming_up} onDone={handleDone} onRemove={handleRemove} acting={acting} />
+            <Section label="Anytime" items={schedule.sections.anytime} onDone={handleDone} onRemove={handleRemove} acting={acting} />
           </>
         )}
       </ScrollView>
@@ -238,10 +257,14 @@ const s = StyleSheet.create({
   rowBar: { width: 3, height: 32, borderRadius: 2, backgroundColor: '#334155', marginRight: 12 },
   rowBody: { flex: 1 },
   rowTitle: { fontSize: 15, fontWeight: '700', color: '#f1f5f9' },
+  rowTitleDone: { color: '#64748b', textDecorationLine: 'line-through' },
   rowTime: { fontSize: 12, color: '#64748b', marginTop: 2 },
+  rowTimeDone: { color: '#475569' },
+  rowActions: { alignItems: 'flex-end', gap: 6 },
   doneBtn: { borderWidth: 1, borderColor: '#334155', borderRadius: 10, paddingVertical: 6, paddingHorizontal: 12 },
   doneBtnText: { color: '#94a3b8', fontSize: 12, fontWeight: '700' },
   doneBadge: { color: '#34d399', fontSize: 12, fontWeight: '700' },
+  removeBtnText: { color: '#475569', fontSize: 11, fontWeight: '600' },
   morningCard: { backgroundColor: '#1e293b', borderRadius: 16, padding: 16, marginTop: 20 },
   morningHeader: { flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center', marginBottom: 10 },
   morningTitle: { fontSize: 15, fontWeight: '800', color: '#f1f5f9' },
