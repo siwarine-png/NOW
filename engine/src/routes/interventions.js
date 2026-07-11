@@ -110,6 +110,7 @@ router.get('/now', async (req, res) => {
       ask_pause: domainResult.ask_pause || false,
       trend_check: domainResult.trend_check || null,
       big_picture: domainResult.big_picture,
+      timer_seconds: domainResult.timer_seconds || null,
     });
   }
 

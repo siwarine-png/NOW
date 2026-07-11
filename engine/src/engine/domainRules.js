@@ -173,6 +173,7 @@ async function pickDomainIntervention(sb, userId) {
     why_this: whyThis,
     alternates: alternates(pool, current.id),
     big_picture: bigPicture,
+    timer_seconds: current.timer_seconds || null,
   };
 
   // R10 (simplified proxy — see file header): only meaningful once there's
@@ -196,7 +197,7 @@ async function pickDomainIntervention(sb, userId) {
 
 function alternates(pool, excludeId) {
   return pool.filter((e) => e.id !== excludeId).slice(0, 3)
-    .map((e) => ({ id: e.id, action_text: e.action_text, effort_tier: e.effort_tier }));
+    .map((e) => ({ id: e.id, action_text: e.action_text, effort_tier: e.effort_tier, timer_seconds: e.timer_seconds || null }));
 }
 
 module.exports = { pickDomainIntervention };

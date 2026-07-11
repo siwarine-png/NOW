@@ -19,6 +19,7 @@ import {
 import { getInterventionNow, postCheckin, postSnooze, postEquivalentCheckin } from '../api/engine';
 import { enqueue, flushQueue } from '../store/queue';
 import { cacheIntervention, getCachedIntervention, clearIntervention } from '../store/session';
+import TimerCountdown from '../components/TimerCountdown';
 
 const SNOOZE_OPTIONS = [
   { label: '10 min', minutes: 10 },
@@ -109,6 +110,7 @@ export default function NowScreen({ user, onSettings, onBack }) {
   const activeAction = altSelected ? fmtAction(altSelected.action_text) : intervention?.action;
   const activeMessage = altSelected ? `Let's do this instead: ${altSelected.action_text}.` : intervention?.message;
   const activeWhyThis = altSelected ? null : intervention?.why_this;
+  const activeTimerSeconds = altSelected ? altSelected.timer_seconds : intervention?.timer_seconds;
 
   async function handleDone() {
     if (isDomainMode) return handleDomainAction('done');
@@ -231,6 +233,9 @@ export default function NowScreen({ user, onSettings, onBack }) {
           <View style={s.actionBox}>
             <Text style={s.actionLabel}>START HERE</Text>
             <Text style={s.action}>{activeAction}</Text>
+            {activeTimerSeconds ? (
+              <TimerCountdown key={activeEquivalentId} totalSeconds={activeTimerSeconds} />
+            ) : null}
           </View>
         )}
 

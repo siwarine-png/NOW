@@ -10,6 +10,7 @@ const sb = require('../db/client');
 const { hashKey } = require('../middleware/auth');
 const { sendCheckinPush, runSchedulerTick, runPushReminderTick } = require('../engine/scheduler');
 const nudgeEngine = require('../engine/nudgeEngine');
+const { seedDomainsForUser } = require('../engine/seed');
 
 const router = Router();
 
@@ -98,6 +99,31 @@ router.post('/scheduler-tick', async (req, res) => {
   } catch (e) {
     res.status(500).json({ ok: false, error: e.message });
   }
+});
+
+// POST /admin/users/:id/reseed-domains — replaces an existing user's
+// system-seeded starter pool with the current STARTER_DOMAINS content.
+// seedDomainsForUser only ever runs automatically at registration for a
+// genuinely new user (re-running it on every login would duplicate the pool
+// every time), so an already-registered account needs this explicit path to
+// pick up new/changed starter content -- e.g. moving onto the 6-axis
+// spectrum from the old 5-domain set (migration 018). Only ever touches
+// system_suggested rows; anything the user authored themselves is untouched.
+router.post('/users/:id/reseed-domains', async (req, res) => {
+  const userId = req.params.id;
+  const { data: user } = await sb.from('users').select('id').eq('id', userId).single();
+  if (!user) return res.status(404).json({ error: 'user not found' });
+
+  const [eqDel, metricDel] = await Promise.all([
+    sb.from('outcome_equivalents').delete().eq('user_id', userId).eq('created_by', 'system_suggested'),
+    sb.from('domain_metrics').delete().eq('user_id', userId).eq('created_by', 'system_suggested'),
+  ]);
+  if (eqDel.error || metricDel.error) {
+    return res.status(500).json({ error: eqDel.error?.message || metricDel.error?.message });
+  }
+
+  await seedDomainsForUser(sb, userId);
+  res.json({ ok: true });
 });
 
 // GET /admin/users/:id/nudge — profile + most recent test per behavior, for
