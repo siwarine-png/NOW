@@ -13,13 +13,19 @@
  * -- the spec's real Foundation treatment is unresolved, not decided, and
  * this is a deliberate simplification, not the final design). This is a
  * proxy for desired_hours_per_week until the Allocation Engine itself
- * exists to translate it; see migration 014_identity_priorities.sql. It's
- * also the last onboarding step now -- the old pain-point question (Step 5)
- * was removed as redundant with "I'm Stuck" (AddPainPointScreen), which
- * asks the identical question at the moment someone actually needs it, not
- * hypothetically before they've used the app at all. Registering with no
- * pain_point_type falls through to the same "not sure yet" default
- * (seedDomainsForUser) the picker's third option used to call explicitly.
+ * exists to translate it; see migration 014_identity_priorities.sql.
+ *
+ * STEP_ADD_REAL_STUFF (after identity, the actual last step) registers the
+ * account, then hands off to AddPainPointScreen in an open loop: add as
+ * many real things as apply to you right now, one at a time, or nothing at
+ * all -- no fixed quota either way, since a scripted "exactly N things"
+ * either way is the same one-size-fits-all mistake as a generic starter
+ * library, just applied to quantity instead of content. Only if literally
+ * nothing gets added does the generic library (seedDomainsForUser) get
+ * seeded, via the explicit POST /users/:id/seed-starter-domains, as a
+ * fallback for someone who genuinely has nothing specific in mind yet --
+ * not the unconditional default for everyone regardless of what they
+ * actually need, which is what silently asking nothing used to fall back to.
  */
 import React, { useState, useEffect } from 'react';
 import {
@@ -28,10 +34,11 @@ import {
 } from 'react-native';
 import * as WebBrowser from 'expo-web-browser';
 import * as Google from 'expo-auth-session/providers/google';
-import { registerUser, lookupUser } from '../api/engine';
+import { registerUser, lookupUser, seedStarterDomains } from '../api/engine';
 import { setUser, markOnboarded } from '../store/session';
 import { flushQueue } from '../store/queue';
 import { showAlert } from '../utils/alert';
+import AddPainPointScreen from './AddPainPointScreen';
 
 WebBrowser.maybeCompleteAuthSession();
 
@@ -40,7 +47,8 @@ const STEP_ANCHOR = 1;
 const STEP_ENERGY = 2;
 const STEP_CONFIRM_TIME = 3;
 const STEP_IDENTITY = 4;
-const TOTAL_STEPS = 4;
+const STEP_ADD_REAL_STUFF = 5;
+const TOTAL_STEPS = 5;
 
 // Mirrors engine/src/engine/nudgeEngine.js's ANCHOR_TIMES -- kept in sync by
 // hand since it's a small, stable display default, not logic the client
@@ -177,6 +185,8 @@ export default function OnboardingScreen({ onComplete }) {
   const [customTime, setCustomTime] = useState('');
 
   const [identityPriorities, setIdentityPriorities] = useState(DEFAULT_IDENTITY_PRIORITIES);
+  const [registeredUser, setRegisteredUser] = useState(null);
+  const [addedCount, setAddedCount] = useState(0);
 
   function adjustPriority(axisKey, delta) {
     setIdentityPriorities(p => ({ ...p, [axisKey]: Math.max(1, Math.min(5, p[axisKey] + delta)) }));
@@ -200,12 +210,12 @@ export default function OnboardingScreen({ onComplete }) {
     setStep(STEP_CONFIRM_TIME);
   }
 
-  // No pain-point question here anymore -- with no pain_point_type sent,
-  // engine/src/routes/users.js falls through to seedDomainsForUser, the same
-  // "not sure yet" default the old picker's third option called explicitly.
-  // A real pain point is captured later, from "I'm Stuck", at the moment
-  // someone actually has one -- not guessed at during onboarding.
-  async function finish() {
+  // Registers the account, then hands off to the open "add real stuff" loop
+  // (STEP_ADD_REAL_STUFF) instead of finishing onboarding immediately --
+  // markOnboarded/onComplete are deferred until that loop ends, since
+  // whether the generic starter library is needed can only be known once
+  // it's clear how many (if any) real things actually got added.
+  async function registerAndContinue() {
     setLoading(true);
     try {
       const tz = Intl.DateTimeFormat().resolvedOptions().timeZone || 'UTC';
@@ -222,14 +232,30 @@ export default function OnboardingScreen({ onComplete }) {
         identity_priorities: identityPriorities,
       });
       await setUser(user);
-      await markOnboarded();
-      await flushQueue();
-      onComplete(user);
+      setRegisteredUser(user);
+      setStep(STEP_ADD_REAL_STUFF);
     } catch (e) {
       showAlert('Error', e.message);
     } finally {
       setLoading(false);
     }
+  }
+
+  function handleOneAdded() {
+    setAddedCount(n => n + 1);
+  }
+
+  // If literally nothing got added, fall back to the generic starter
+  // library so the app isn't just empty -- best-effort, since a failure
+  // here shouldn't block finishing onboarding (same tolerance
+  // seedDomainsForUser already has server-side for its own two inserts).
+  async function finishAddingReal() {
+    if (addedCount === 0 && registeredUser?.id) {
+      try { await seedStarterDomains(registeredUser.id); } catch (e) { /* best-effort */ }
+    }
+    await markOnboarded();
+    await flushQueue();
+    onComplete(registeredUser);
   }
 
   // On native, Android is the actual target platform -- webClientId is only
@@ -387,10 +413,19 @@ export default function OnboardingScreen({ onComplete }) {
         ))}
       </View>
 
-      <TouchableOpacity style={[s.btn, s.btnCompact, loading && s.btnDisabled]} disabled={loading} onPress={finish}>
-        {loading ? <ActivityIndicator color="#fff" /> : <Text style={s.btnText}>Finish →</Text>}
+      <TouchableOpacity style={[s.btn, s.btnCompact, loading && s.btnDisabled]} disabled={loading} onPress={registerAndContinue}>
+        {loading ? <ActivityIndicator color="#fff" /> : <Text style={s.btnText}>Continue →</Text>}
       </TouchableOpacity>
     </View>
+  );
+
+  if (step === STEP_ADD_REAL_STUFF) return (
+    <AddPainPointScreen
+      user={registeredUser}
+      onCreated={handleOneAdded}
+      secondaryActionLabel="That's it for now →"
+      onSecondaryAction={finishAddingReal}
+    />
   );
 
   return null;

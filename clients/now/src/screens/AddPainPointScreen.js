@@ -75,7 +75,13 @@ function formatDisplayTime(hhmm) {
   return `${h12}:${String(m).padStart(2, '0')} ${period}`;
 }
 
-export default function AddPainPointScreen({ user, onCreated }) {
+// secondaryActionLabel/onSecondaryAction: optional, shown only on the blank
+// STEP_TITLE screen -- used by OnboardingScreen's day-1 "add as many real
+// things as apply to you, or nothing at all" open loop (see its own header
+// comment) to offer an explicit way out at exactly the point where someone
+// either has nothing more to add, or nothing to begin with. Normal usage
+// from the New tab doesn't pass these and renders exactly as before.
+export default function AddPainPointScreen({ user, onCreated, secondaryActionLabel, onSecondaryAction }) {
   const [step, setStep] = useState(STEP_CHECKING);
   const [staleProjects, setStaleProjects] = useState([]);
   const [customTitle, setCustomTitle] = useState('');
@@ -323,6 +329,11 @@ export default function AddPainPointScreen({ user, onCreated }) {
       >
         <Text style={s.btnText}>Continue →</Text>
       </TouchableOpacity>
+      {onSecondaryAction && (
+        <TouchableOpacity style={s.linkBtn} onPress={onSecondaryAction}>
+          <Text style={s.linkBtnText}>{secondaryActionLabel || "That's it for now →"}</Text>
+        </TouchableOpacity>
+      )}
     </View>
   );
 }

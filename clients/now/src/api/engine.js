@@ -41,6 +41,14 @@ export async function lookupUser(external_ref) {
   return request('GET', `/users/lookup?${params}`);
 }
 
+// Opt-in only -- called from OnboardingScreen.js when its day-1 "add as many
+// real things as apply to you" loop ends with zero items added, so a
+// genuinely-nothing-in-mind account still gets the generic starter library
+// as a fallback instead of registration seeding it unconditionally for everyone.
+export async function seedStarterDomains(user_id) {
+  return request('POST', `/users/${user_id}/seed-starter-domains`);
+}
+
 // ── Adaptive Nudge Engine ────────────────────────────────────────────────
 export async function getBehaviorStatus(user_id, behavior) {
   const params = new URLSearchParams({ user_id });

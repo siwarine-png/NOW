@@ -64,9 +64,13 @@ router.post('/', async (req, res) => {
   if (error) return res.status(500).json({ error: error.message });
 
   // Start with the pain point, not the generic domain library: a stated
-  // pain point becomes one real, immediately-actionable commitment. The
-  // 5-domain starter library is now an explicit fallback ("not sure yet"),
-  // not the default for everyone regardless of what they actually need.
+  // pain point becomes one real, immediately-actionable commitment.
+  // No unconditional seedDomainsForUser fallback anymore -- onboarding's
+  // day-1 open loop ("add as many real things as apply to you, or nothing
+  // at all," OnboardingScreen.js) is what real day-1 content should come
+  // from now. The generic starter library is only ever seeded on explicit
+  // request, via POST /users/:id/seed-starter-domains below, for someone
+  // who genuinely has nothing specific in mind after that loop.
   if (isNewUser) {
     if (pain_point_type === 'medicine') {
       await sb.from('commitments').insert({
@@ -83,8 +87,6 @@ router.post('/', async (req, res) => {
         window_start: anchor_time || null,
         window_end: anchor_time ? addMinutesToTime(anchor_time, 60) : null,
       });
-    } else {
-      await seedDomainsForUser(sb, data.id);
     }
   }
 
@@ -101,6 +103,20 @@ router.post('/', async (req, res) => {
 
   log(req.app_id, data.id, 'user.registered', { external_ref, timezone, wake_time: wt, sleep_time: st, checkin_time: ct, anchor_answer, energy_window, pain_point_type, seeded: isNewUser });
   res.status(201).json(data);
+});
+
+// POST /users/:id/seed-starter-domains — opt-in only, called by
+// OnboardingScreen.js when its day-1 "add as many real things as apply to
+// you" loop ends with zero items added. Kept separate from registration
+// (POST /) rather than a flag on it, since whether this is needed can only
+// be known after that loop finishes, not at the moment the account is created.
+router.post('/:id/seed-starter-domains', async (req, res) => {
+  const { data: user } = await sb.from('users').select('id').eq('id', req.params.id).eq('app_id', req.app_id).single();
+  if (!user) return res.status(404).json({ error: 'Not found' });
+
+  await seedDomainsForUser(sb, user.id);
+  log(req.app_id, user.id, 'user.seeded_starter_domains', {});
+  res.status(204).end();
 });
 
 // PATCH /users/:id — update timezone / quiet hours
