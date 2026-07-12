@@ -18,9 +18,19 @@ function timeToMinutes(t) {
 router.post('/', async (req, res) => {
   const { user_id, title, next_action, why, identity_tag, identity_axis,
           cadence, window_start, window_end, deadline,
-          priority_tier, parent_commitment_id } = req.body;
+          priority_tier, parent_commitment_id, status } = req.body;
 
   if (!user_id || !title) return res.status(400).json({ error: 'user_id and title required' });
+  // Only a sensible *starting* state is creatable here -- 'completed'/
+  // 'abandoned' only ever happen through the checkin/PATCH flows that
+  // actually resolve something, never asserted at creation time. This is
+  // what lets a client create a multi-step project's queued-but-not-yet-
+  // active steps in one request each (AddPainPointScreen.js's project
+  // path), instead of creating everything 'active' and then a separate
+  // PATCH per step just to pause the ones not up yet.
+  if (status && !['active', 'paused'].includes(status)) {
+    return res.status(400).json({ error: "status must be 'active' or 'paused' at creation" });
+  }
 
   // Verify user belongs to this app
   const { data: user } = await sb.from('users').select('id').eq('id', user_id).eq('app_id', req.app_id).single();
@@ -35,7 +45,8 @@ router.post('/', async (req, res) => {
     // column comment in migration 016).
     .insert({ user_id, title, next_action, why, identity_tag, identity_axis: identity_axis || null,
               cadence: cadence || 'daily', window_start, window_end, deadline,
-              priority_tier: priority_tier || 'normal', parent_commitment_id: parent_commitment_id || null })
+              priority_tier: priority_tier || 'normal', parent_commitment_id: parent_commitment_id || null,
+              ...(status ? { status } : {}) })
     .select()
     .single();
 

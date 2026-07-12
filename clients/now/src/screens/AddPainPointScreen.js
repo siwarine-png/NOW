@@ -13,6 +13,20 @@
  *
  * STEP_AXIS tags the new commitment with an Adaptive Allocation Engine
  * identity_axis (migration 016) -- one tap, no typing.
+ *
+ * STEP_TYPE (after axis) splits into three genuinely different structures,
+ * not just three labels on the same shape:
+ *  - Task: one-time, a specific due time/date -- the existing urgency ->
+ *    time -> deadline flow, cadence forced to 'once'.
+ *  - Habit: recurring behavior -- daily/monthly cadence, a plain time-of-day,
+ *    no urgency or deadline framing (neither fits something recurring).
+ *  - Project: an ongoing outcome with multiple steps -- a NEW open loop
+ *    (add step, add another, or that's all of them) that creates one parent
+ *    commitment plus its steps as children (parent_commitment_id, first
+ *    step 'active', the rest 'paused'), same decomposition mechanic Day
+ *    Arc's checklist uses (see engine/decomposition.js). Before this there
+ *    was no way to create an actual multi-step project through the UI at
+ *    all -- Day Arc only exists because it was hand-seeded via SQL.
  */
 import React, { useState, useEffect } from 'react';
 import { View, Text, TextInput, TouchableOpacity, StyleSheet, ActivityIndicator } from 'react-native';
@@ -28,6 +42,8 @@ const STEP_RECURRENCE = 3;
 const STEP_TIME = 4;
 const STEP_TIME_MEANING = 5;
 const STEP_DURATION = 6;
+const STEP_TYPE = 7;
+const STEP_PROJECT_STEP = 8;
 
 const DURATIONS = [
   { label: '15 min', minutes: 15 },
@@ -91,6 +107,9 @@ export default function AddPainPointScreen({ user, onCreated, secondaryActionLab
   const [pickingTime, setPickingTime] = useState(false);
   const [customTime, setCustomTime] = useState('');
   const [loading, setLoading] = useState(false);
+  const [itemKind, setItemKind] = useState(null); // 'task' | 'habit' | 'project'
+  const [projectSteps, setProjectSteps] = useState([]);
+  const [currentStepInput, setCurrentStepInput] = useState('');
 
   // Soft nudge, not a gate -- every path out of here (including a failed
   // check) lands on the normal STEP_TITLE flow; this only ever adds one
@@ -112,7 +131,23 @@ export default function AddPainPointScreen({ user, onCreated, secondaryActionLab
 
   function chooseAxis(axisKey) {
     setIdentityAxis(axisKey);
-    setStep(STEP_URGENCY);
+    setStep(STEP_TYPE);
+  }
+
+  // Task/habit/project are genuinely different structures (see header
+  // comment), not just labels -- each routes to its own flow from here.
+  function chooseKind(kind) {
+    setItemKind(kind);
+    if (kind === 'task') {
+      setCadence('once');
+      setStep(STEP_URGENCY);
+    } else if (kind === 'habit') {
+      setStep(STEP_RECURRENCE);
+    } else {
+      setProjectSteps([]);
+      setCurrentStepInput('');
+      setStep(STEP_PROJECT_STEP);
+    }
   }
 
   function chooseCadence(value) {
@@ -120,9 +155,54 @@ export default function AddPainPointScreen({ user, onCreated, secondaryActionLab
     setStep(STEP_TIME);
   }
 
+  // Habits skip the "start time vs deadline" question entirely (neither
+  // framing fits something recurring) and submit directly; tasks continue
+  // to STEP_TIME_MEANING as before.
+  function continueFromTime(t) {
+    setTime(t);
+    if (itemKind === 'habit') submit(t);
+    else setStep(STEP_TIME_MEANING);
+  }
+
   function handleCustomTimeChange(text) {
     const digits = text.replace(/\D/g, '').slice(0, 4);
     setCustomTime(digits.length <= 2 ? digits : `${digits.slice(0, -2)}:${digits.slice(-2)}`);
+  }
+
+  function addProjectStep() {
+    if (!currentStepInput.trim()) return;
+    setProjectSteps(steps => [...steps, currentStepInput.trim()]);
+    setCurrentStepInput('');
+  }
+
+  // Creates one parent commitment (the project itself) then each step as a
+  // child under it -- first step 'active' (surfaceable right away), the
+  // rest 'paused' (queued), same shape Day Arc's checklist uses. The
+  // engine auto-advances the chain as each step is finished or removed
+  // (engine/decomposition.js) -- nothing extra needed here for that part.
+  async function finishProject() {
+    const steps = currentStepInput.trim() ? [...projectSteps, currentStepInput.trim()] : projectSteps;
+    if (!steps.length || !user?.id) return;
+    setLoading(true);
+    try {
+      const parent = await createCommitment({
+        user_id: user.id, title: customTitle.trim(), next_action: 'Work the current step below.',
+        cadence: 'once', identity_axis: identityAxis, priority_tier: 'normal',
+      });
+      for (let i = 0; i < steps.length; i++) {
+        await createCommitment({
+          user_id: user.id, parent_commitment_id: parent.id, title: steps[i], next_action: null,
+          cadence: 'once', identity_axis: identityAxis, priority_tier: 'normal',
+          status: i === 0 ? 'active' : 'paused',
+        });
+      }
+      resetAll();
+      onCreated?.();
+    } catch (e) {
+      showAlert("Couldn't add that", e.message);
+    } finally {
+      setLoading(false);
+    }
   }
 
   function resetAll() {
@@ -133,6 +213,9 @@ export default function AddPainPointScreen({ user, onCreated, secondaryActionLab
     setPickingTime(false);
     setCustomTime('');
     setTime(defaultTime());
+    setItemKind(null);
+    setProjectSteps([]);
+    setCurrentStepInput('');
   }
 
   async function createAndReset(payload) {
@@ -220,25 +303,76 @@ export default function AddPainPointScreen({ user, onCreated, secondaryActionLab
     </View>
   );
 
+  if (step === STEP_TYPE) return (
+    <View style={s.center}>
+      <Text style={s.title}>What kind of{'\n'}thing is this?</Text>
+      <TouchableOpacity style={s.kindCard} onPress={() => chooseKind('task')}>
+        <Text style={s.kindCardTitle}>A task</Text>
+        <Text style={s.kindCardSub}>One-time, specific due time</Text>
+      </TouchableOpacity>
+      <TouchableOpacity style={s.kindCard} onPress={() => chooseKind('habit')}>
+        <Text style={s.kindCardTitle}>A habit</Text>
+        <Text style={s.kindCardSub}>Recurring behavior</Text>
+      </TouchableOpacity>
+      <TouchableOpacity style={s.kindCard} onPress={() => chooseKind('project')}>
+        <Text style={s.kindCardTitle}>A project</Text>
+        <Text style={s.kindCardSub}>Ongoing outcome, multiple steps</Text>
+      </TouchableOpacity>
+    </View>
+  );
+
   if (step === STEP_URGENCY) return (
     <View style={s.center}>
       <Text style={s.title}>How urgent{'\n'}is this?</Text>
       <TouchableOpacity style={[s.btn, loading && s.btnDisabled]} disabled={loading} onPress={submitUrgent}>
         {loading ? <ActivityIndicator color="#fff" /> : <Text style={s.btnText}>Right now — can't wait</Text>}
       </TouchableOpacity>
-      <TouchableOpacity style={[s.btn, s.btnSecondary]} onPress={() => setStep(STEP_RECURRENCE)} disabled={loading}>
+      <TouchableOpacity style={[s.btn, s.btnSecondary]} onPress={() => setStep(STEP_TIME)} disabled={loading}>
         <Text style={s.btnText}>Not urgent — I'll schedule it</Text>
+      </TouchableOpacity>
+    </View>
+  );
+
+  if (step === STEP_PROJECT_STEP) return (
+    <View style={s.center}>
+      <Text style={s.title}>{projectSteps.length === 0 ? "What's the first step?" : 'Next step?'}</Text>
+      <Text style={s.hint}>{projectSteps.length > 0 ? `${projectSteps.length} step${projectSteps.length === 1 ? '' : 's'} so far` : 'One step at a time.'}</Text>
+
+      {projectSteps.length > 0 && (
+        <View style={s.staleList}>
+          {projectSteps.map((stepTitle, i) => (
+            <View key={i} style={s.staleRow}>
+              <Text style={s.staleTitle}>{i + 1}. {stepTitle}</Text>
+            </View>
+          ))}
+        </View>
+      )}
+
+      <TextInput
+        style={s.input} value={currentStepInput} onChangeText={setCurrentStepInput}
+        placeholder="e.g. export the PDF" placeholderTextColor="#475569" autoFocus
+        onSubmitEditing={addProjectStep} returnKeyType="next"
+      />
+      <TouchableOpacity
+        style={[s.btn, !currentStepInput.trim() && s.btnDisabled]} disabled={!currentStepInput.trim() || loading}
+        onPress={addProjectStep}
+      >
+        <Text style={s.btnText}>Add step →</Text>
+      </TouchableOpacity>
+      <TouchableOpacity
+        style={s.linkBtn}
+        disabled={loading || (!projectSteps.length && !currentStepInput.trim())}
+        onPress={finishProject}
+      >
+        <Text style={s.linkBtnText}>{loading ? 'Creating…' : "That's all the steps →"}</Text>
       </TouchableOpacity>
     </View>
   );
 
   if (step === STEP_RECURRENCE) return (
     <View style={s.center}>
-      <Text style={s.title}>Is this a one-time thing,{'\n'}or something you'll do{'\n'}regularly?</Text>
-      <TouchableOpacity style={s.btn} onPress={() => chooseCadence('once')}>
-        <Text style={s.btnText}>Just once</Text>
-      </TouchableOpacity>
-      <TouchableOpacity style={[s.btn, s.btnSecondary]} onPress={() => chooseCadence('daily')}>
+      <Text style={s.title}>How often{'\n'}will you do this?</Text>
+      <TouchableOpacity style={s.btn} onPress={() => chooseCadence('daily')}>
         <Text style={s.btnText}>Every day</Text>
       </TouchableOpacity>
       {/* Without this, something genuinely monthly (e.g. "send provision
@@ -259,7 +393,7 @@ export default function AddPainPointScreen({ user, onCreated, secondaryActionLab
 
       {!pickingTime ? (
         <>
-          <TouchableOpacity style={s.btn} onPress={() => setStep(STEP_TIME_MEANING)}>
+          <TouchableOpacity style={s.btn} onPress={() => continueFromTime(time)}>
             <Text style={s.btnText}>Sounds good →</Text>
           </TouchableOpacity>
           <TouchableOpacity style={s.linkBtn} onPress={() => setPickingTime(true)}>
@@ -274,7 +408,7 @@ export default function AddPainPointScreen({ user, onCreated, secondaryActionLab
           />
           <TouchableOpacity
             style={s.btn}
-            onPress={() => { const t = normalizeTime(customTime.trim()) || time; setTime(t); setStep(STEP_TIME_MEANING); }}
+            onPress={() => continueFromTime(normalizeTime(customTime.trim()) || time)}
           >
             <Text style={s.btnText}>Set and continue →</Text>
           </TouchableOpacity>
@@ -345,6 +479,9 @@ const s = StyleSheet.create({
   input: { backgroundColor: '#1e293b', borderRadius: 10, padding: 14, fontSize: 16, color: '#f1f5f9', marginBottom: 16, borderWidth: 1, borderColor: '#334155', width: 240, textAlign: 'center' },
   btn: { backgroundColor: '#6366f1', borderRadius: 12, padding: 16, alignItems: 'center', marginTop: 10, minWidth: 220 },
   btnSecondary: { backgroundColor: '#1e293b', borderWidth: 1, borderColor: '#334155' },
+  kindCard: { backgroundColor: '#1e293b', borderRadius: 14, borderWidth: 1, borderColor: '#334155', paddingVertical: 14, paddingHorizontal: 20, alignItems: 'center', marginTop: 10, minWidth: 220 },
+  kindCardTitle: { color: '#fff', fontSize: 16, fontWeight: '800' },
+  kindCardSub: { color: '#64748b', fontSize: 12, marginTop: 2 },
   btnDisabled: { opacity: 0.5 },
   btnText: { color: '#fff', fontSize: 16, fontWeight: '800' },
   linkBtn: { paddingVertical: 14 },
