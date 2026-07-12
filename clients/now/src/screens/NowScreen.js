@@ -16,7 +16,7 @@ import {
   View, Text, TouchableOpacity, StyleSheet, ActivityIndicator,
   AppState, ScrollView,
 } from 'react-native';
-import { getInterventionNow, postCheckin, postSnooze, postEquivalentCheckin, updateUser } from '../api/engine';
+import { getInterventionNow, postCheckin, postSnooze, postEquivalentCheckin, updateUser, updateCommitment } from '../api/engine';
 import { enqueue, flushQueue } from '../store/queue';
 import { cacheIntervention, getCachedIntervention, clearIntervention } from '../store/session';
 import TimerCountdown from '../components/TimerCountdown';
@@ -144,6 +144,22 @@ export default function NowScreen({ user, onSettings, onBack }) {
     setActing(false);
     // Reload after short delay to get next state
     setTimeout(() => { setDone(false); load(false); }, 1800);
+  }
+
+  // Commitment mode only -- domain mode's "Not today" already covers "not
+  // this one" for an outcome_equivalent, which isn't a commitment at all.
+  // Same abandon-not-delete semantics as Today's own Remove (TodayScreen.js):
+  // drops out of every active-commitment query without losing history, no
+  // confirmation dialog since it's low-stakes and specific to one item.
+  async function handleRemove() {
+    if (!intervention?.commitment_id) return;
+    setActing(true);
+    try {
+      await updateCommitment(intervention.commitment_id, { status: 'abandoned' });
+    } catch (e) { /* best-effort -- worst case it just shows up again until retried */ }
+    await clearIntervention();
+    setActing(false);
+    load(false);
   }
 
   async function handleSnooze(option) {
@@ -349,6 +365,10 @@ export default function NowScreen({ user, onSettings, onBack }) {
                 ))}
               </View>
             )}
+
+            <TouchableOpacity style={s.linkBtn} onPress={handleRemove} disabled={acting}>
+              <Text style={s.linkBtnText}>Remove</Text>
+            </TouchableOpacity>
           </>
         )}
       </ScrollView>
