@@ -19,8 +19,11 @@
  * a time? a due date? a sequence of steps?), which of the 6 axes it
  * belongs to doesn't, so axis is still asked afterward, separately. Four
  * genuinely different structures, not four labels on the same shape:
- *  - Task, with a due time/date: the existing urgency -> date -> time ->
- *    deadline flow, cadence forced to 'once'. due_date (migration 025) is
+ *  - Task, with a due time/date: date -> time -> deadline flow, cadence
+ *    forced to 'once'. "Right now, can't wait" (priority_tier: 'critical',
+ *    no window at all) lives as a chip on the date screen rather than its
+ *    own gate first -- it's still due "now," just with a different shape
+ *    once picked (see submitUrgent). due_date (migration 025) is
  *    the actual calendar date, separate from window_start/window_end
  *    (which are just a time-of-day, no date of their own) -- without it, a
  *    task scheduled for a specific future day had no way to say so and
@@ -60,7 +63,6 @@ const STEP_CHECKING = -1;
 const STEP_STALE_NUDGE = -2;
 const STEP_TITLE = 0;
 const STEP_AXIS = 1;
-const STEP_URGENCY = 2;
 const STEP_RECURRENCE = 3;
 const STEP_DATE = 7;
 const STEP_TIME = 4;
@@ -218,10 +220,12 @@ export default function AddPainPointScreen({ user, onCreated, secondaryActionLab
   // Axis picked, now branch by the kind chosen a moment ago. task_no_due
   // submits immediately from here -- axisKey is passed straight through
   // rather than read from identityAxis state, since that state update
-  // hasn't committed yet within this same tap.
+  // hasn't committed yet within this same tap. task_due goes straight to
+  // the date step now -- "right now, can't wait" lives as a chip there
+  // instead of costing its own separate screen first (see STEP_DATE).
   function chooseAxis(axisKey) {
     setIdentityAxis(axisKey);
-    if (itemKind === 'task_due') setStep(STEP_URGENCY);
+    if (itemKind === 'task_due') setStep(STEP_DATE);
     else if (itemKind === 'task_no_due') createAndReset({}, axisKey);
     else if (itemKind === 'habit') setStep(STEP_RECURRENCE);
     else {
@@ -413,18 +417,12 @@ export default function AddPainPointScreen({ user, onCreated, secondaryActionLab
     </View>
   );
 
-  if (step === STEP_URGENCY) return (
-    <View style={s.center}>
-      <Text style={s.title}>How urgent{'\n'}is this?</Text>
-      <TouchableOpacity style={[s.btn, loading && s.btnDisabled]} disabled={loading} onPress={submitUrgent}>
-        {loading ? <ActivityIndicator color="#fff" /> : <Text style={s.btnText}>Right now — can't wait</Text>}
-      </TouchableOpacity>
-      <TouchableOpacity style={[s.btn, s.btnSecondary]} onPress={() => setStep(STEP_DATE)} disabled={loading}>
-        <Text style={s.btnText}>Not urgent — I'll schedule it</Text>
-      </TouchableOpacity>
-    </View>
-  );
-
+  // "Right now, can't wait" used to be its own screen (STEP_URGENCY) before
+  // every task_due task -- an extra gate before getting to the date you'd
+  // already implied by picking "due." It's really just one more option on
+  // this same screen: still the same different shape underneath
+  // (priority_tier: 'critical', no window at all, see submitUrgent), just
+  // reached without a whole separate step first.
   if (step === STEP_DATE) return (
     <View style={s.center}>
       <Text style={s.title}>What day{'\n'}is this due?</Text>
@@ -432,13 +430,16 @@ export default function AddPainPointScreen({ user, onCreated, secondaryActionLab
 
       {!pickingDate ? (
         <>
-          <TouchableOpacity style={s.btn} onPress={() => chooseDate(todayDateKey())}>
+          <TouchableOpacity style={[s.btn, loading && s.btnDisabled]} disabled={loading} onPress={submitUrgent}>
+            {loading ? <ActivityIndicator color="#fff" /> : <Text style={s.btnText}>Right now — can't wait</Text>}
+          </TouchableOpacity>
+          <TouchableOpacity style={[s.btn, s.btnSecondary]} onPress={() => chooseDate(todayDateKey())} disabled={loading}>
             <Text style={s.btnText}>Today</Text>
           </TouchableOpacity>
-          <TouchableOpacity style={[s.btn, s.btnSecondary]} onPress={() => chooseDate(addDaysDateKey(1))}>
+          <TouchableOpacity style={[s.btn, s.btnSecondary]} onPress={() => chooseDate(addDaysDateKey(1))} disabled={loading}>
             <Text style={s.btnText}>Tomorrow</Text>
           </TouchableOpacity>
-          <TouchableOpacity style={s.linkBtn} onPress={() => setPickingDate(true)}>
+          <TouchableOpacity style={s.linkBtn} onPress={() => setPickingDate(true)} disabled={loading}>
             <Text style={s.linkBtnText}>Pick a specific date</Text>
           </TouchableOpacity>
         </>
