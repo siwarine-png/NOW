@@ -51,7 +51,7 @@
  * against real anchors instead of guessing a fixed clock time. Route that
  * case there, not through this screen.
  */
-import React, { useState, useEffect } from 'react';
+import React, { useState, useEffect, useRef } from 'react';
 import { View, Text, TextInput, TouchableOpacity, StyleSheet, ActivityIndicator } from 'react-native';
 import { createCommitment, getStalledProjects } from '../api/engine';
 import { showAlert } from '../utils/alert';
@@ -187,6 +187,7 @@ export default function AddPainPointScreen({ user, onCreated, secondaryActionLab
   const [itemKind, setItemKind] = useState(null); // 'task' | 'habit' | 'project'
   const [projectSteps, setProjectSteps] = useState([]);
   const [currentStepInput, setCurrentStepInput] = useState('');
+  const stepInputRef = useRef(null);
 
   // Soft nudge, not a gate -- every path out of here (including a failed
   // check) lands on the normal STEP_TITLE flow; this only ever adds one
@@ -256,10 +257,15 @@ export default function AddPainPointScreen({ user, onCreated, secondaryActionLab
     setCustomTime(digits.length <= 2 ? digits : `${digits.slice(0, -2)}:${digits.slice(-2)}`);
   }
 
+  // Clearing the input's value alone doesn't keep focus on web -- without
+  // the explicit refocus, every single step meant a manual re-tap into the
+  // field just to keep typing the next one, exactly the friction a
+  // "keep typing, one thing after another" flow shouldn't have.
   function addProjectStep() {
     if (!currentStepInput.trim()) return;
     setProjectSteps(steps => [...steps, currentStepInput.trim()]);
     setCurrentStepInput('');
+    stepInputRef.current?.focus();
   }
 
   // Creates one parent commitment (the project itself) then each step as a
@@ -470,6 +476,7 @@ export default function AddPainPointScreen({ user, onCreated, secondaryActionLab
       )}
 
       <TextInput
+        ref={stepInputRef}
         style={s.input} value={currentStepInput} onChangeText={setCurrentStepInput}
         placeholder="e.g. export the PDF" placeholderTextColor="#475569" autoFocus
         onSubmitEditing={addProjectStep} returnKeyType="next"
