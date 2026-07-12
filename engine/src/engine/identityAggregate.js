@@ -7,10 +7,16 @@
  * against the user's own waking hours per week rather than a flat 168 --
  * sleep isn't allocatable time to begin with.
  *
- * Only current_hours_per_week -- desired_hours_per_week still isn't
- * computed anywhere (that's the unbuilt Phase 1/2 baseline+flex allocation
- * from the spec, a separate and much bigger piece of work). This module is
- * deliberately scoped to just the measurement side.
+ * desired_hours_per_week is a rough, real computation from the one signal
+ * onboarding actually collects for this: identity_priorities (1-5 relative
+ * priority per axis, tap-only). It can't be more than rough -- the real
+ * Phase 1/2 baseline+flex allocation from the spec is a separate, much
+ * bigger piece of work -- but rough-and-real beats the flat mock constant
+ * this used to be, identical for every user regardless of what they
+ * actually said mattered to them. The flexible pool (waking hours minus
+ * whatever fixed time is known so far) splits proportional to priority
+ * weight, floored per axis at AXIS_FLOORS so a low-priority axis never
+ * reads as "zero hours desired" regardless of how it's weighted.
  *
  * Samples with is_fixed = true count toward fixed_hours_per_week --
  * non-negotiable time future allocation logic must not suggest moving.
@@ -49,6 +55,30 @@ const { AXES, ROLLING_WINDOW_DAYS, wakingMinutes } = require('./identityCheckin'
 const DEFAULT_TIER_MINUTES = { 1: 2, 2: 5, 3: 15, 4: 45 };
 const DEFAULT_WINDOWLESS_MINUTES = 15;
 const MIN_CONFIDENT_SAMPLES = 10; // same "enough data" threshold interventions.js's personalization uses
+const DEFAULT_PRIORITY = 3; // mid-scale, matches OnboardingScreen.js's DEFAULT_IDENTITY_PRIORITIES
+const AXIS_FLOORS = { relationships: 3, finance: 2 };
+
+// priorities: {axis: 1-5} from users.identity_priorities (onboarding's tap-
+// only priority step). fixedHoursByAxis: this call's own per-axis
+// fixed_hours_per_week, nulls treated as 0 -- early on (day 1, or before
+// any "I'm busy"/fixed commitment exists) that's everything, which just
+// means the flexible pool starts as the full waking week until real fixed
+// time is known, rather than blocking this computation on data that isn't
+// there yet.
+function computeDesiredHoursPerWeek(priorities, wakingHoursPerWeek, fixedHoursByAxis) {
+  const totalFixed = AXES.reduce((sum, axis) => sum + (fixedHoursByAxis[axis] || 0), 0);
+  const flexiblePool = Math.max(0, wakingHoursPerWeek - totalFixed);
+
+  const weights = AXES.map(axis => priorities?.[axis] ?? DEFAULT_PRIORITY);
+  const totalWeight = weights.reduce((a, b) => a + b, 0) || 1;
+
+  const desired = {};
+  AXES.forEach((axis, i) => {
+    const proportional = (weights[i] / totalWeight) * flexiblePool;
+    desired[axis] = Math.round(Math.max(proportional, AXIS_FLOORS[axis] || 0) * 10) / 10;
+  });
+  return desired;
+}
 
 function windowMinutes(windowStart, windowEnd) {
   const [sh, sm] = windowStart.split(':').map(Number);
@@ -130,7 +160,7 @@ async function computeLoggedHoursPerWeek(userId, windowStart) {
 
 async function computeCurrentHoursPerWeek(userId) {
   const { data: user } = await sb
-    .from('users').select('wake_time, sleep_time, identity_checkin_started_at')
+    .from('users').select('wake_time, sleep_time, identity_checkin_started_at, identity_priorities')
     .eq('id', userId).single();
   if (!user) return null;
 
@@ -167,6 +197,14 @@ async function computeCurrentHoursPerWeek(userId) {
       logged_hours_per_week: logged[axis] || 0,
     };
   }
+
+  const fixedHoursByAxis = {};
+  AXES.forEach(axis => { fixedHoursByAxis[axis] = axes[axis].fixed_hours_per_week || 0; });
+  const desired = computeDesiredHoursPerWeek(user.identity_priorities, wakingHoursPerWeek, fixedHoursByAxis);
+  AXES.forEach(axis => {
+    axes[axis].desired_hours_per_week = desired[axis];
+    axes[axis].floor_hours_per_week = AXIS_FLOORS[axis] || null;
+  });
 
   return { total_samples: total, window_start: windowStart.toISOString(), axes };
 }

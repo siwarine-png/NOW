@@ -60,19 +60,22 @@ function sleepDurationHours(sleepTime, wakeTime) {
 // per-axis, plus `floor_hours_per_week` where §2.3 defines one. Foundation's
 // sleep window is real now (wake_time/sleep_time already exist on `users`,
 // just were never actually surfaced/editable anywhere until this screen).
-// desired_hours_per_week / floor_hours_per_week below are still mock
-// placeholders (see header comment) -- current_hours_per_week gets
-// overwritten with real data from getIdentitySpectrum once it loads.
+// Every field below is now only a fallback for a failed fetch -- the real
+// values (current, fixed, logged, desired, floor) all come from
+// getIdentitySpectrum once it loads; see the load() callback below and
+// identityAggregate.js's computeDesiredHoursPerWeek for how desired is
+// actually computed now (a rough, real split of flexible waking hours by
+// identity_priorities, not a flat constant).
 const MOCK_SPECTRUM = {
   axes: [
     // Foundation used to be shown only via the sleep-schedule box below, with
     // no bar of its own -- inconsistent with the other 5 axes and easy to
     // misread as "not tracked." It's sampled by identity_checkins exactly
     // like the rest (see identityCheckin.js's AXES), just never rendered
-    // the same way. desired_hours_per_week here is a placeholder same as
-    // everywhere else in this mock (see header comment) -- Foundation's real
-    // desired figure should eventually be prescribed, not user-set, per the
-    // spec, which still isn't built.
+    // the same way. Foundation's real desired figure should eventually be
+    // prescribed rather than priority-weighted like the rest, per the spec
+    // -- still unresolved, not decided; the priority-weighted computation
+    // applies to it the same as every other axis for now.
     { axis: 'foundation', label: 'Foundation', desired_hours_per_week: 10, current_hours_per_week: 8 },
     { axis: 'relationships', label: 'Relationships', floor_hours_per_week: 3, desired_hours_per_week: 18, current_hours_per_week: 12 },
     { axis: 'achievement', label: 'Achievement', desired_hours_per_week: 32, current_hours_per_week: 22.5 },
@@ -157,8 +160,10 @@ export default function IdentityScreen({ onBack, user }) {
   const [savingSchedule, setSavingSchedule] = useState(false);
 
   const load = useCallback(async () => {
-    // desired/floor stay mock (see header comment); current_hours_per_week
-    // and fixed_hours_per_week get overwritten with real measured data below.
+    // MOCK_SPECTRUM is now only a fallback for when the real fetch fails --
+    // desired_hours_per_week/floor_hours_per_week are real now too (rough,
+    // computed from identity_priorities server-side, see
+    // identityAggregate.js's computeDesiredHoursPerWeek), not flat constants.
     let axes = MOCK_SPECTRUM.axes;
     if (user?.id) {
       try {
@@ -170,6 +175,8 @@ export default function IdentityScreen({ onBack, user }) {
           sample_count: real.axes[item.axis]?.sample_count ?? 0,
           logged_hours_per_week: real.axes[item.axis]?.logged_hours_per_week ?? 0,
           low_confidence: real.axes[item.axis]?.low_confidence ?? false,
+          desired_hours_per_week: real.axes[item.axis]?.desired_hours_per_week ?? item.desired_hours_per_week,
+          floor_hours_per_week: real.axes[item.axis]?.floor_hours_per_week ?? item.floor_hours_per_week ?? null,
         }));
       } catch (e) { /* keep the mock fallback rather than a broken screen */ }
     }
