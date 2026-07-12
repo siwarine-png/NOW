@@ -3,6 +3,7 @@ const sb = require('../db/client');
 const { log } = require('../engine/events');
 const { loadStats } = require('../engine/stats');
 const { scoreRisk } = require('../engine/risk');
+const { advanceSiblingChain } = require('../engine/decomposition');
 
 const router = Router();
 
@@ -113,29 +114,6 @@ router.post('/', async (req, res) => {
     top_factor,
   });
 });
-
-// Activates the earliest still-'paused' sibling under the same parent
-// (created_at order), so a multi-step checklist surfaces exactly one step
-// at a time instead of dumping all of them into the rotation together. If
-// nothing's left to queue, and every sibling is now completed/abandoned,
-// the parent itself is marked done -- closing the loop on the whole project.
-async function advanceSiblingChain(parentId) {
-  const { data: siblings } = await sb
-    .from('commitments')
-    .select('id, status')
-    .eq('parent_commitment_id', parentId)
-    .order('created_at', { ascending: true });
-  if (!siblings?.length) return;
-
-  const nextQueued = siblings.find(s => s.status === 'paused');
-  if (nextQueued) {
-    await sb.from('commitments').update({ status: 'active' }).eq('id', nextQueued.id);
-    return;
-  }
-
-  const allDone = siblings.every(s => s.status === 'completed' || s.status === 'abandoned');
-  if (allDone) await sb.from('commitments').update({ status: 'completed' }).eq('id', parentId);
-}
 
 // Engine v8: checkins against a domain equivalent instead of a commitment.
 // No commitment-style stats/risk/intervention-closing here — that machinery

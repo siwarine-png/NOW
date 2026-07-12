@@ -3,6 +3,7 @@ const sb = require('../db/client');
 const { log } = require('../engine/events');
 const { loadStats } = require('../engine/stats');
 const { isWithinWindow, nowMinutesInTz } = require('../engine/rules');
+const { advanceSiblingChain } = require('../engine/decomposition');
 
 const router = Router();
 
@@ -165,6 +166,15 @@ router.patch('/:id', async (req, res) => {
 
   if (error || !data || data.users.app_id !== req.app_id)
     return res.status(404).json({ error: 'Not found' });
+
+  // A decomposed step being Removed (status -> 'abandoned', Today's per-row
+  // action) or otherwise closed out this way shouldn't leave the rest of a
+  // multi-step project stuck with nothing active -- same advance POST
+  // /checkins already does when a step is marked done, just reached from a
+  // different door (skipping/removing a step instead of completing it).
+  if (['completed', 'abandoned'].includes(updates.status) && current.parent_commitment_id) {
+    await advanceSiblingChain(current.parent_commitment_id);
+  }
 
   log(req.app_id, data.user_id, 'commitment.updated', { commitment_id: data.id, updates });
   res.json(data);
