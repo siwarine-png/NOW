@@ -79,14 +79,10 @@ export default function NowScreen({ user, onSettings, onBack }) {
   const [altSelected, setAltSelected] = useState(null);
   const [showAlternates, setShowAlternates] = useState(false);
 
-  const load = useCallback(async (useCache = false) => {
+  const load = useCallback(async () => {
     if (!user) return;
     setLoading(true);
     try {
-      if (useCache) {
-        const cached = await getCachedIntervention();
-        if (cached) { setIntervention(cached); setLoading(false); return; }
-      }
       // Flush queued offline events before fetching
       await flushQueue();
       const data = await getInterventionNow(user.id);
@@ -103,11 +99,18 @@ export default function NowScreen({ user, onSettings, onBack }) {
     }
   }, [user]);
 
-  useEffect(() => { load(true); }, [load]);
+  // Always a live fetch on mount, not cache-first -- Now is only ever
+  // reached by tapping Today's own "DO THIS NOW" card (App.js's now-focus
+  // has no other entry point), which just did its own live fetch a moment
+  // earlier. Preferring a cached intervention up to 30 min old here meant
+  // Now could show something completely different from what Today just
+  // displayed, whenever the cache hadn't expired yet. getCachedIntervention
+  // is still the fallback below on a genuine network failure.
+  useEffect(() => { load(); }, [load]);
 
   // Reload when app comes back to foreground
   useEffect(() => {
-    const sub = AppState.addEventListener('change', s => { if (s === 'active') load(false); });
+    const sub = AppState.addEventListener('change', s => { if (s === 'active') load(); });
     return () => sub.remove();
   }, [load]);
 
@@ -125,7 +128,7 @@ export default function NowScreen({ user, onSettings, onBack }) {
       await updateUser(user.id, { busy_until: null });
     } catch (e) { /* best-effort -- worst case it just stays busy until it expires */ }
     setActing(false);
-    load(false);
+    load();
   }
 
   async function handleDone() {
@@ -143,7 +146,7 @@ export default function NowScreen({ user, onSettings, onBack }) {
     setDone(true);
     setActing(false);
     // Reload after short delay to get next state
-    setTimeout(() => { setDone(false); load(false); }, 1800);
+    setTimeout(() => { setDone(false); load(); }, 1800);
   }
 
   // Commitment mode only -- domain mode's "Not today" already covers "not
@@ -159,7 +162,7 @@ export default function NowScreen({ user, onSettings, onBack }) {
     } catch (e) { /* best-effort -- worst case it just shows up again until retried */ }
     await clearIntervention();
     setActing(false);
-    load(false);
+    load();
   }
 
   async function handleSnooze(option) {
@@ -177,7 +180,7 @@ export default function NowScreen({ user, onSettings, onBack }) {
     setActing(false);
     // The engine now suppresses this commitment until the snooze expires, so
     // reloading immediately correctly shows "clear" (or the next-highest-risk one).
-    load(false);
+    load();
   }
 
   async function handleDomainAction(result) {
@@ -192,9 +195,9 @@ export default function NowScreen({ user, onSettings, onBack }) {
     setActing(false);
     if (result === 'done') {
       setDone(true);
-      setTimeout(() => { setDone(false); load(false); }, 1800);
+      setTimeout(() => { setDone(false); load(); }, 1800);
     } else {
-      load(false);
+      load();
     }
   }
 
@@ -303,7 +306,7 @@ export default function NowScreen({ user, onSettings, onBack }) {
           commitmentId: !isDomainMode ? intervention.commitment_id : null,
         }} />
 
-        <ImBusyButton userId={user?.id} onSet={() => load(false)} />
+        <ImBusyButton userId={user?.id} onSet={() => load()} />
 
         {/* Friction reduction (commitment mode only) */}
         {intervention.friction_reduction && (
