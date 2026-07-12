@@ -14,7 +14,8 @@
  */
 import React, { useState, useEffect, useCallback } from 'react';
 import { View, Text, TouchableOpacity, StyleSheet, ActivityIndicator, ScrollView } from 'react-native';
-import { getCommitments } from '../api/engine';
+import { getCommitments, updateCommitment } from '../api/engine';
+import { showAlert } from '../utils/alert';
 
 function axisLabel(axis) {
   if (!axis) return null;
@@ -71,6 +72,8 @@ export default function ProjectsScreen({ user, onAddNew }) {
   const [loading, setLoading] = useState(true);
   const [projects, setProjects] = useState([]);
   const [quickTasks, setQuickTasks] = useState([]);
+  const [selected, setSelected] = useState(new Set());
+  const [deleting, setDeleting] = useState(false);
 
   const load = useCallback(async () => {
     if (!user?.id) return;
@@ -89,6 +92,41 @@ export default function ProjectsScreen({ user, onAddNew }) {
     } catch { /* keep whatever was last shown rather than a broken empty screen */ }
     finally { setLoading(false); }
   }, [user]);
+
+  function toggleSelect(id) {
+    setSelected(s => {
+      const next = new Set(s);
+      if (next.has(id)) next.delete(id); else next.add(id);
+      return next;
+    });
+  }
+
+  // Same abandon-not-delete semantics as every other Remove in this app --
+  // drops each selected item out of every active-commitment query without
+  // losing history. Only prompts a confirm here (unlike the single-item
+  // Remove elsewhere) since acting on several at once is easier to fat-
+  // finger and harder to individually undo by eye.
+  async function handleBulkDelete() {
+    if (!selected.size) return;
+    showAlert(
+      `Remove ${selected.size} item${selected.size === 1 ? '' : 's'}?`,
+      null,
+      [
+        { text: 'Cancel', style: 'cancel' },
+        {
+          text: 'Remove', style: 'destructive', onPress: async () => {
+            setDeleting(true);
+            try {
+              await Promise.all([...selected].map(id => updateCommitment(id, { status: 'abandoned' })));
+            } catch (e) { /* best-effort -- worst case some remain until retried */ }
+            setSelected(new Set());
+            setDeleting(false);
+            load();
+          },
+        },
+      ]
+    );
+  }
 
   useEffect(() => { load(); }, [load]);
 
@@ -123,7 +161,12 @@ export default function ProjectsScreen({ user, onAddNew }) {
             {projects.map(({ project, currentStep }) => (
               <View key={project.id} style={s.card}>
                 <View style={s.cardHeader}>
-                  <Text style={s.cardTitle}>{project.title}</Text>
+                  <View style={s.cardHeaderLeft}>
+                    <TouchableOpacity style={[s.checkbox, selected.has(project.id) && s.checkboxChecked]} onPress={() => toggleSelect(project.id)}>
+                      {selected.has(project.id) && <Text style={s.checkboxMark}>✓</Text>}
+                    </TouchableOpacity>
+                    <Text style={s.cardTitle}>{project.title}</Text>
+                  </View>
                   {project.status === 'paused' && <Text style={s.pausedBadge}>⏸ Paused</Text>}
                 </View>
                 {project.identity_axis && <Text style={s.cardAxis}>{axisLabel(project.identity_axis)}</Text>}
@@ -146,13 +189,28 @@ export default function ProjectsScreen({ user, onAddNew }) {
             <Text style={s.sectionLabel}>QUICK TASKS</Text>
             {quickTasks.map(t => (
               <View key={t.id} style={s.card}>
-                <Text style={s.cardTitle}>{t.title}</Text>
+                <View style={s.cardHeader}>
+                  <View style={s.cardHeaderLeft}>
+                    <TouchableOpacity style={[s.checkbox, selected.has(t.id) && s.checkboxChecked]} onPress={() => toggleSelect(t.id)}>
+                      {selected.has(t.id) && <Text style={s.checkboxMark}>✓</Text>}
+                    </TouchableOpacity>
+                    <Text style={s.cardTitle}>{t.title}</Text>
+                  </View>
+                </View>
                 {t.identity_axis && <Text style={s.cardAxis}>{axisLabel(t.identity_axis)}</Text>}
               </View>
             ))}
           </View>
         )}
       </ScrollView>
+
+      {selected.size > 0 && (
+        <TouchableOpacity style={[s.deleteBtn, deleting && s.btnDisabled]} onPress={handleBulkDelete} disabled={deleting}>
+          {deleting
+            ? <ActivityIndicator color="#fff" />
+            : <Text style={s.deleteBtnText}>Remove {selected.size} selected</Text>}
+        </TouchableOpacity>
+      )}
 
       <TouchableOpacity style={s.addBtn} onPress={onAddNew}>
         <Text style={s.addBtnText}>+ Something new</Text>
@@ -175,11 +233,18 @@ const s = StyleSheet.create({
   sectionLabel: { fontSize: 11, fontWeight: '800', color: '#475569', letterSpacing: 0.8, marginBottom: 10 },
   card: { backgroundColor: '#1e293b', borderRadius: 14, padding: 16, marginBottom: 10, borderWidth: 1, borderColor: '#273449' },
   cardHeader: { flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center' },
-  cardTitle: { fontSize: 15, fontWeight: '800', color: '#f1f5f9', flex: 1, marginRight: 8 },
+  cardHeaderLeft: { flexDirection: 'row', alignItems: 'center', flex: 1, marginRight: 8 },
+  checkbox: { width: 20, height: 20, borderRadius: 5, borderWidth: 2, borderColor: '#475569', marginRight: 10, alignItems: 'center', justifyContent: 'center' },
+  checkboxChecked: { backgroundColor: '#6366f1', borderColor: '#6366f1' },
+  checkboxMark: { color: '#fff', fontSize: 13, fontWeight: '900', lineHeight: 14 },
+  cardTitle: { fontSize: 15, fontWeight: '800', color: '#f1f5f9', flex: 1 },
   cardAxis: { fontSize: 11, color: '#818cf8', fontWeight: '700', marginTop: 4 },
   currentStep: { fontSize: 13, color: '#94a3b8', marginTop: 8 },
   pausedBadge: { fontSize: 11, fontWeight: '800', color: '#f59e0b' },
   pausedReason: { fontSize: 13, color: '#94a3b8', fontStyle: 'italic', marginTop: 8 },
+  deleteBtn: { backgroundColor: '#7f1d1d', borderRadius: 14, paddingVertical: 14, alignItems: 'center', marginHorizontal: 20, marginBottom: 10, borderWidth: 1, borderColor: '#dc2626' },
+  deleteBtnText: { color: '#fecaca', fontSize: 15, fontWeight: '800' },
+  btnDisabled: { opacity: 0.5 },
   addBtn: { backgroundColor: '#6366f1', borderRadius: 14, paddingVertical: 16, alignItems: 'center', marginHorizontal: 20, marginBottom: 28 },
   addBtnText: { color: '#fff', fontSize: 16, fontWeight: '800' },
 });
