@@ -24,6 +24,10 @@ import { showAlert } from '../utils/alert';
 
 const JOURNAL_KEY = 'identity_reflection_v1';
 
+// Matches OnboardingScreen.js's DEFAULT_IDENTITY_PRIORITIES -- not shared via
+// a common module in this codebase, same as the time-input helpers below.
+const DEFAULT_IDENTITY_PRIORITIES = { foundation: 3, relationships: 3, achievement: 3, finance: 3, contribution: 3, recreation: 3 };
+
 // Accepts "2300", "11", "23:00" etc., same shape as the time inputs already
 // used in OnboardingScreen.js/AddPainPointScreen.js -- not shared via a
 // common module in this codebase, so duplicated locally like those are.
@@ -85,7 +89,73 @@ const MOCK_SPECTRUM = {
   ],
 };
 
-function AxisBar({ item }) {
+// The rough priority-weighted computation is a default, not a ceiling --
+// anyone who wants precision instead of a rough split can set an exact
+// number per axis (users.desired_hours_overrides), which always wins over
+// the computed value (see identityAggregate.js). Self-contained so AxisBar
+// itself stays stateless-ish; onSetOverride/onClearOverride do the actual
+// PATCH + reload up in the parent.
+function DesiredOverrideControl({ item, onSetOverride, onClearOverride }) {
+  const [editing, setEditing] = useState(false);
+  const [input, setInput] = useState('');
+  const [saving, setSaving] = useState(false);
+
+  async function save() {
+    const val = parseFloat(input);
+    if (!val || val <= 0) return;
+    setSaving(true);
+    try {
+      await onSetOverride(item.axis, val);
+      setEditing(false);
+      setInput('');
+    } finally {
+      setSaving(false);
+    }
+  }
+
+  async function clear() {
+    setSaving(true);
+    try { await onClearOverride(item.axis); } finally { setSaving(false); }
+  }
+
+  if (editing) {
+    return (
+      <View style={s.overrideRow}>
+        <TextInput
+          style={s.overrideInput}
+          value={input}
+          onChangeText={t => setInput(t.replace(/[^\d.]/g, ''))}
+          keyboardType="decimal-pad"
+          placeholder="hrs/wk"
+          placeholderTextColor="#475569"
+          autoFocus
+        />
+        <TouchableOpacity onPress={save} disabled={saving || !input}>
+          <Text style={s.overrideLinkText}>{saving ? 'Saving…' : 'Save'}</Text>
+        </TouchableOpacity>
+        <TouchableOpacity onPress={() => { setEditing(false); setInput(''); }} disabled={saving}>
+          <Text style={s.overrideLinkTextDim}>Cancel</Text>
+        </TouchableOpacity>
+      </View>
+    );
+  }
+
+  if (item.is_override) {
+    return (
+      <TouchableOpacity onPress={clear} disabled={saving} style={s.overrideRow}>
+        <Text style={s.overrideLinkTextDim}>{saving ? 'Reverting…' : '✏️ Set manually — use computed instead'}</Text>
+      </TouchableOpacity>
+    );
+  }
+
+  return (
+    <TouchableOpacity onPress={() => setEditing(true)} style={s.overrideRow}>
+      <Text style={s.overrideLinkTextDim}>Set exact hours instead</Text>
+    </TouchableOpacity>
+  );
+}
+
+function AxisBar({ item, onSetOverride, onClearOverride }) {
   // No real samples yet for this axis -- show a distinct "not enough data"
   // state rather than mixing a real 0h with the still-mock desired figure,
   // which would misleadingly read as "measured zero" instead of "unmeasured."
@@ -99,6 +169,7 @@ function AxisBar({ item }) {
         {item.logged_hours_per_week > 0 && (
           <Text style={s.loggedNote}>{item.logged_hours_per_week}h logged this month from completed tasks tagged to this axis</Text>
         )}
+        <DesiredOverrideControl item={item} onSetOverride={onSetOverride} onClearOverride={onClearOverride} />
       </View>
     );
   }
@@ -143,6 +214,7 @@ function AxisBar({ item }) {
       {item.logged_hours_per_week > 0 && (
         <Text style={s.loggedNote}>{item.logged_hours_per_week}h logged this month from completed tasks tagged to this axis</Text>
       )}
+      <DesiredOverrideControl item={item} onSetOverride={onSetOverride} onClearOverride={onClearOverride} />
     </View>
   );
 }
@@ -158,6 +230,15 @@ export default function IdentityScreen({ onBack, user }) {
   const [wakeInput, setWakeInput] = useState('');
   const [sleepInput, setSleepInput] = useState('');
   const [savingSchedule, setSavingSchedule] = useState(false);
+
+  // Priorities aren't locked in from onboarding forever -- same tap-only
+  // 1-5 picker, just re-visitable here whenever what matters to you shifts.
+  // desired_hours_per_week recomputes from these automatically (see
+  // identityAggregate.js) once saved.
+  const [priorities, setPriorities] = useState(user?.identity_priorities || DEFAULT_IDENTITY_PRIORITIES);
+  const [editingPriorities, setEditingPriorities] = useState(false);
+  const [savingPriorities, setSavingPriorities] = useState(false);
+  const [overrides, setOverrides] = useState(user?.desired_hours_overrides || {});
 
   const load = useCallback(async () => {
     // MOCK_SPECTRUM is now only a fallback for when the real fetch fails --
@@ -177,6 +258,7 @@ export default function IdentityScreen({ onBack, user }) {
           low_confidence: real.axes[item.axis]?.low_confidence ?? false,
           desired_hours_per_week: real.axes[item.axis]?.desired_hours_per_week ?? item.desired_hours_per_week,
           floor_hours_per_week: real.axes[item.axis]?.floor_hours_per_week ?? item.floor_hours_per_week ?? null,
+          is_override: real.axes[item.axis]?.is_override ?? false,
         }));
       } catch (e) { /* keep the mock fallback rather than a broken screen */ }
     }
@@ -219,6 +301,40 @@ export default function IdentityScreen({ onBack, user }) {
     } finally {
       setSavingSchedule(false);
     }
+  }
+
+  function adjustPriority(axisKey, delta) {
+    setPriorities(p => ({ ...p, [axisKey]: Math.max(1, Math.min(5, (p[axisKey] ?? 3) + delta)) }));
+  }
+
+  async function savePriorities() {
+    setSavingPriorities(true);
+    try {
+      if (user?.id) await updateUser(user.id, { identity_priorities: priorities });
+      setEditingPriorities(false);
+      await load(); // desired_hours_per_week depends on these -- reload to reflect the change
+    } catch (e) {
+      showAlert("Couldn't save", e.message);
+    } finally {
+      setSavingPriorities(false);
+    }
+  }
+
+  async function setOverride(axis, hours) {
+    if (!user?.id) return;
+    const next = { ...overrides, [axis]: hours };
+    await updateUser(user.id, { desired_hours_overrides: next });
+    setOverrides(next);
+    await load();
+  }
+
+  async function clearOverride(axis) {
+    if (!user?.id) return;
+    const next = { ...overrides };
+    delete next[axis];
+    await updateUser(user.id, { desired_hours_overrides: next });
+    setOverrides(next);
+    await load();
   }
 
   if (!spectrum) return null;
@@ -294,7 +410,55 @@ export default function IdentityScreen({ onBack, user }) {
           )}
         </View>
 
-        {spectrum.axes.map(item => <AxisBar key={item.axis} item={item} />)}
+        <View style={s.prioritiesSection}>
+          {!editingPriorities ? (
+            <TouchableOpacity onPress={() => setEditingPriorities(true)} style={s.foundationEditBtn}>
+              <Text style={s.foundationEditBtnText}>Edit what matters most to you</Text>
+            </TouchableOpacity>
+          ) : (
+            <View style={s.prioritiesCard}>
+              <Text style={s.prioritiesHint}>Tap + or − for each. This is what desired_hours_per_week gets computed from.</Text>
+              {spectrum.axes.map(item => (
+                <View key={item.axis} style={s.priorityRow}>
+                  <Text style={s.priorityLabel}>{item.label}</Text>
+                  <View style={s.priorityControl}>
+                    <TouchableOpacity
+                      style={s.priorityBtn}
+                      disabled={priorities[item.axis] <= 1}
+                      onPress={() => adjustPriority(item.axis, -1)}
+                    >
+                      <Text style={s.priorityBtnText}>−</Text>
+                    </TouchableOpacity>
+                    <View style={s.priorityDots}>
+                      {[1, 2, 3, 4, 5].map(n => (
+                        <View key={n} style={[s.priorityDot, n <= (priorities[item.axis] ?? 3) && s.priorityDotFilled]} />
+                      ))}
+                    </View>
+                    <TouchableOpacity
+                      style={s.priorityBtn}
+                      disabled={priorities[item.axis] >= 5}
+                      onPress={() => adjustPriority(item.axis, 1)}
+                    >
+                      <Text style={s.priorityBtnText}>+</Text>
+                    </TouchableOpacity>
+                  </View>
+                </View>
+              ))}
+              <View style={s.scheduleActions}>
+                <TouchableOpacity onPress={() => setEditingPriorities(false)} style={s.linkBtn} disabled={savingPriorities}>
+                  <Text style={s.linkBtnText}>Cancel</Text>
+                </TouchableOpacity>
+                <TouchableOpacity onPress={savePriorities} style={s.saveBtn} disabled={savingPriorities}>
+                  <Text style={s.saveBtnText}>{savingPriorities ? 'Saving…' : 'Save'}</Text>
+                </TouchableOpacity>
+              </View>
+            </View>
+          )}
+        </View>
+
+        {spectrum.axes.map(item => (
+          <AxisBar key={item.axis} item={item} onSetOverride={setOverride} onClearOverride={clearOverride} />
+        ))}
 
         <View style={s.journalSection}>
           <Text style={s.journalLabel}>Reflection</Text>
@@ -357,6 +521,22 @@ const s = StyleSheet.create({
   fixedNote: { fontSize: 11, color: '#64748b', marginTop: 4 },
   loggedNote: { fontSize: 11, color: '#818cf8', marginTop: 4 },
   lowConfidenceNote: { fontSize: 11, color: '#f59e0b', marginTop: 4 },
+  overrideRow: { flexDirection: 'row', alignItems: 'center', gap: 12, marginTop: 8 },
+  overrideInput: { backgroundColor: '#0f172a', borderRadius: 8, borderWidth: 1, borderColor: '#334155', paddingVertical: 6, paddingHorizontal: 10, fontSize: 13, color: '#f1f5f9', width: 80 },
+  overrideLinkText: { color: '#6366f1', fontSize: 12, fontWeight: '700' },
+  overrideLinkTextDim: { color: '#64748b', fontSize: 12, fontWeight: '600' },
+
+  prioritiesSection: { marginBottom: 16 },
+  prioritiesCard: { backgroundColor: '#1e293b', borderRadius: 12, padding: 14 },
+  prioritiesHint: { fontSize: 11, color: '#64748b', marginBottom: 10, lineHeight: 16 },
+  priorityRow: { flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center', paddingVertical: 8, borderBottomWidth: 1, borderBottomColor: '#0f172a' },
+  priorityLabel: { fontSize: 13, fontWeight: '700', color: '#f1f5f9' },
+  priorityControl: { flexDirection: 'row', alignItems: 'center', gap: 8 },
+  priorityBtn: { width: 24, height: 24, borderRadius: 12, backgroundColor: '#0f172a', borderWidth: 1, borderColor: '#334155', alignItems: 'center', justifyContent: 'center' },
+  priorityBtnText: { color: '#818cf8', fontSize: 14, fontWeight: '800' },
+  priorityDots: { flexDirection: 'row', gap: 4 },
+  priorityDot: { width: 7, height: 7, borderRadius: 3.5, backgroundColor: '#0f172a', borderWidth: 1, borderColor: '#334155' },
+  priorityDotFilled: { backgroundColor: '#6366f1', borderColor: '#6366f1' },
 
   journalSection: { marginTop: 24 },
   journalLabel: { fontSize: 13, fontWeight: '800', color: '#f1f5f9', marginBottom: 2 },

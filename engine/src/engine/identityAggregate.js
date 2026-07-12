@@ -160,7 +160,7 @@ async function computeLoggedHoursPerWeek(userId, windowStart) {
 
 async function computeCurrentHoursPerWeek(userId) {
   const { data: user } = await sb
-    .from('users').select('wake_time, sleep_time, identity_checkin_started_at, identity_priorities')
+    .from('users').select('wake_time, sleep_time, identity_checkin_started_at, identity_priorities, desired_hours_overrides')
     .eq('id', userId).single();
   if (!user) return null;
 
@@ -200,9 +200,14 @@ async function computeCurrentHoursPerWeek(userId) {
 
   const fixedHoursByAxis = {};
   AXES.forEach(axis => { fixedHoursByAxis[axis] = axes[axis].fixed_hours_per_week || 0; });
-  const desired = computeDesiredHoursPerWeek(user.identity_priorities, wakingHoursPerWeek, fixedHoursByAxis);
+  const computed = computeDesiredHoursPerWeek(user.identity_priorities, wakingHoursPerWeek, fixedHoursByAxis);
   AXES.forEach(axis => {
-    axes[axis].desired_hours_per_week = desired[axis];
+    // An explicit override (users.desired_hours_overrides, set from the
+    // Identity tab for anyone who wants precision instead of a rough
+    // priority-weighted split) always wins over the computed value.
+    const override = user.desired_hours_overrides?.[axis];
+    axes[axis].desired_hours_per_week = (typeof override === 'number') ? override : computed[axis];
+    axes[axis].is_override = typeof override === 'number';
     axes[axis].floor_hours_per_week = AXIS_FLOORS[axis] || null;
   });
 
