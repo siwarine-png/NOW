@@ -11,10 +11,13 @@
  * to take medication"), which is the actually-adherence-aware path for
  * that -- this screen is only ever the 6-axis want/need spectrum now.
  *
- * STEP_TYPE comes right after the title now, before axis -- what KIND of
+ * The kind picker sits right on the title screen, between the input and
+ * Continue -- not a separate step, so choosing a title and choosing what
+ * KIND of thing it is happen on one screen instead of costing an extra
+ * screen transition. Continue is disabled until both are set. What KIND of
  * thing this is decides the whole shape of what follows (does it even need
  * a time? a due date? a sequence of steps?), which of the 6 axes it
- * belongs to doesn't, so axis moved after it instead of before. Four
+ * belongs to doesn't, so axis is still asked afterward, separately. Four
  * genuinely different structures, not four labels on the same shape:
  *  - Task, with a due time/date: the existing urgency -> time -> deadline
  *    flow, cadence forced to 'once'.
@@ -58,7 +61,6 @@ const STEP_RECURRENCE = 3;
 const STEP_TIME = 4;
 const STEP_TIME_MEANING = 5;
 const STEP_DURATION = 6;
-const STEP_TYPE = 7;
 const STEP_PROJECT_STEP = 8;
 
 const DURATIONS = [
@@ -66,6 +68,13 @@ const DURATIONS = [
   { label: '30 min', minutes: 30 },
   { label: '1 hour', minutes: 60 },
   { label: '2 hours', minutes: 120 },
+];
+
+const KIND_OPTIONS = [
+  { value: 'task_due', label: 'Task (due)' },
+  { value: 'task_no_due', label: 'Task (someday)' },
+  { value: 'habit', label: 'Habit' },
+  { value: 'project', label: 'Project' },
 ];
 
 const AXES = [
@@ -140,18 +149,17 @@ export default function AddPainPointScreen({ user, onCreated, secondaryActionLab
       .catch(() => setStep(STEP_TITLE));
   }, [user?.id]);
 
+  // Both title and kind live on the same screen now, so Continue can't fire
+  // until both are set -- the kind chips are just a setItemKind, no
+  // transition of their own (see selectKind).
   function continueFromTitle() {
-    if (!customTitle.trim()) return;
-    setStep(STEP_TYPE);
+    if (!customTitle.trim() || !itemKind) return;
+    if (itemKind === 'task_due' || itemKind === 'task_no_due') setCadence('once');
+    setStep(STEP_AXIS);
   }
 
-  // What KIND of thing this is comes before axis now -- it decides the
-  // whole shape of what follows (does it even need a time? a due date? a
-  // sequence of steps?), which axis it belongs to doesn't.
-  function chooseKind(kind) {
+  function selectKind(kind) {
     setItemKind(kind);
-    if (kind === 'task_due' || kind === 'task_no_due') setCadence('once');
-    setStep(STEP_AXIS);
   }
 
   // Axis picked, now branch by the kind chosen a moment ago. task_no_due
@@ -331,28 +339,6 @@ export default function AddPainPointScreen({ user, onCreated, secondaryActionLab
     </View>
   );
 
-  if (step === STEP_TYPE) return (
-    <View style={s.center}>
-      <Text style={s.title}>What kind of{'\n'}thing is this?</Text>
-      <TouchableOpacity style={s.kindCard} onPress={() => chooseKind('task_due')}>
-        <Text style={s.kindCardTitle}>A task — with a due time/date</Text>
-        <Text style={s.kindCardSub}>One-time, scheduled</Text>
-      </TouchableOpacity>
-      <TouchableOpacity style={s.kindCard} onPress={() => chooseKind('task_no_due')}>
-        <Text style={s.kindCardTitle}>A task — no due date</Text>
-        <Text style={s.kindCardSub}>One-time, whenever you get to it</Text>
-      </TouchableOpacity>
-      <TouchableOpacity style={s.kindCard} onPress={() => chooseKind('habit')}>
-        <Text style={s.kindCardTitle}>A habit</Text>
-        <Text style={s.kindCardSub}>Recurring behavior</Text>
-      </TouchableOpacity>
-      <TouchableOpacity style={s.kindCard} onPress={() => chooseKind('project')}>
-        <Text style={s.kindCardTitle}>A project</Text>
-        <Text style={s.kindCardSub}>Ongoing outcome, multiple steps</Text>
-      </TouchableOpacity>
-    </View>
-  );
-
   if (step === STEP_URGENCY) return (
     <View style={s.center}>
       <Text style={s.title}>How urgent{'\n'}is this?</Text>
@@ -489,8 +475,21 @@ export default function AddPainPointScreen({ user, onCreated, secondaryActionLab
         placeholder="e.g. finishing my taxes" placeholderTextColor="#475569" autoFocus
         onSubmitEditing={continueFromTitle} returnKeyType="next"
       />
+
+      <View style={s.kindChipRow}>
+        {KIND_OPTIONS.map(k => (
+          <TouchableOpacity
+            key={k.value}
+            style={[s.kindChip, itemKind === k.value && s.kindChipSelected]}
+            onPress={() => selectKind(k.value)}
+          >
+            <Text style={[s.kindChipText, itemKind === k.value && s.kindChipTextSelected]}>{k.label}</Text>
+          </TouchableOpacity>
+        ))}
+      </View>
+
       <TouchableOpacity
-        style={[s.btn, !customTitle.trim() && s.btnDisabled]} disabled={!customTitle.trim()}
+        style={[s.btn, (!customTitle.trim() || !itemKind) && s.btnDisabled]} disabled={!customTitle.trim() || !itemKind}
         onPress={continueFromTitle}
       >
         <Text style={s.btnText}>Continue →</Text>
@@ -511,9 +510,11 @@ const s = StyleSheet.create({
   input: { backgroundColor: '#1e293b', borderRadius: 10, padding: 14, fontSize: 16, color: '#f1f5f9', marginBottom: 16, borderWidth: 1, borderColor: '#334155', width: 240, textAlign: 'center' },
   btn: { backgroundColor: '#6366f1', borderRadius: 12, padding: 16, alignItems: 'center', marginTop: 10, minWidth: 220 },
   btnSecondary: { backgroundColor: '#1e293b', borderWidth: 1, borderColor: '#334155' },
-  kindCard: { backgroundColor: '#1e293b', borderRadius: 14, borderWidth: 1, borderColor: '#334155', paddingVertical: 14, paddingHorizontal: 20, alignItems: 'center', marginTop: 10, minWidth: 220 },
-  kindCardTitle: { color: '#fff', fontSize: 16, fontWeight: '800' },
-  kindCardSub: { color: '#64748b', fontSize: 12, marginTop: 2 },
+  kindChipRow: { flexDirection: 'row', flexWrap: 'wrap', justifyContent: 'center', gap: 8, maxWidth: 260, marginBottom: 6 },
+  kindChip: { backgroundColor: '#1e293b', borderRadius: 16, paddingVertical: 8, paddingHorizontal: 14, borderWidth: 1, borderColor: '#334155' },
+  kindChipSelected: { backgroundColor: '#6366f1', borderColor: '#6366f1' },
+  kindChipText: { color: '#f1f5f9', fontSize: 13, fontWeight: '600' },
+  kindChipTextSelected: { color: '#fff' },
   btnDisabled: { opacity: 0.5 },
   btnText: { color: '#fff', fontSize: 16, fontWeight: '800' },
   linkBtn: { paddingVertical: 14 },
