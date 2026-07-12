@@ -202,10 +202,17 @@ const RULES = [
       return daysSilent >= 7 && c.status === 'active';
     },
     build({ commitment: c, stats }) {
+      // daysSinceLastCheckin is null (not 0) when there's never been a
+      // single checkin recorded at all -- matches() folds that into the
+      // same "definitely stale" bucket via ?? 999, but the message needs
+      // its own wording here instead of literally printing "null days".
+      const staleDescription = stats.daysSinceLastCheckin == null
+        ? "hasn't been checked in on yet"
+        : `has been quiet for ${stats.daysSinceLastCheckin} days`;
       return {
         framing: 'renegotiate',
         action: null,
-        message: `"${c.title}" has been quiet for ${stats.daysSinceLastCheckin} days. Pause it, renegotiate the scope, or recommit — but don't let it linger as silent debt.`,
+        message: `"${c.title}" ${staleDescription}. Pause it, renegotiate the scope, or recommit — but don't let it linger as silent debt.`,
         friction_reduction: null,
         why_this: 'A commitment you\'re not keeping is a trust leak. Pause or renegotiate beats silent guilt.',
       };
