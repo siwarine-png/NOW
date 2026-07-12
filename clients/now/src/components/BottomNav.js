@@ -1,11 +1,12 @@
 /**
  * Persistent bottom tab bar, visible on every post-onboarding screen.
  * 4 tabs: "I'm Stuck" (momentary unsticking triage -- StuckScreen), "Now"
- * (the day's shape -- TodayScreen), "Projects" (what's actually in flight,
- * plus adding something new -- ProjectsScreen; this is now the discoverable
- * home for that, not just a secondary link buried under I'm Stuck), and
- * "Identity" (the Adaptive Allocation Engine's spectrum reflection --
- * IdentityScreen).
+ * (the day's shape -- TodayScreen), "New" (ProjectsScreen -- the
+ * discoverable home for adding anything new: quick tasks, multi-step
+ * projects, whatever, not just "projects" narrowly; also shows what's
+ * already in flight so a new idea gets seen against the existing pile
+ * instead of disappearing into it), and "Identity" (the Adaptive
+ * Allocation Engine's spectrum reflection -- IdentityScreen).
  */
 import React from 'react';
 import { View, Text, TouchableOpacity, StyleSheet } from 'react-native';
@@ -22,8 +23,8 @@ export default function BottomNav({ active, onStuck, onNow, onProjects, onIdenti
         <Text style={[s.label, active === 'now' && s.labelActive]}>Now</Text>
       </TouchableOpacity>
       <TouchableOpacity style={s.tab} onPress={onProjects}>
-        <Text style={s.icon}>📋</Text>
-        <Text style={[s.label, active === 'projects' && s.labelActive]}>Projects</Text>
+        <Text style={s.icon}>➕</Text>
+        <Text style={[s.label, active === 'projects' && s.labelActive]}>New</Text>
       </TouchableOpacity>
       <TouchableOpacity style={s.tab} onPress={onIdentity}>
         <Text style={s.icon}>🪞</Text>

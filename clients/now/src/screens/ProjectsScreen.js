@@ -91,8 +91,8 @@ export default function ProjectsScreen({ user, onAddNew }) {
   return (
     <View style={s.screen}>
       <ScrollView contentContainerStyle={s.scroll}>
-        <Text style={s.title}>Projects</Text>
-        <Text style={s.subtitle}>What's actually in flight</Text>
+        <Text style={s.title}>New</Text>
+        <Text style={s.subtitle}>Add something, or see what's already in flight</Text>
 
         {crowded.length > 0 && (
           <View style={s.crowdedBox}>
