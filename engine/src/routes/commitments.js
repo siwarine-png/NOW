@@ -17,7 +17,7 @@ function timeToMinutes(t) {
 // POST /commitments
 router.post('/', async (req, res) => {
   const { user_id, title, next_action, why, identity_tag, identity_axis,
-          cadence, window_start, window_end, deadline, due_date,
+          cadence, window_start, window_end, deadline, due_date, is_fixed,
           priority_tier, parent_commitment_id, status } = req.body;
 
   if (!user_id || !title) return res.status(400).json({ error: 'user_id and title required' });
@@ -46,7 +46,7 @@ router.post('/', async (req, res) => {
     .insert({ user_id, title, next_action, why, identity_tag, identity_axis: identity_axis || null,
               cadence: cadence || 'daily', window_start, window_end, deadline, due_date: due_date || null,
               priority_tier: priority_tier || 'normal', parent_commitment_id: parent_commitment_id || null,
-              ...(status ? { status } : {}) })
+              is_fixed: !!is_fixed, ...(status ? { status } : {}) })
     .select()
     .single();
 

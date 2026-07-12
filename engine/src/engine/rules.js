@@ -131,7 +131,7 @@ const RULES = [
   {
     id: 'R4_ambiguous_action',
     matches({ commitment: c, checkedInToday }) {
-      if (checkedInToday) return false;
+      if (checkedInToday || c.is_fixed) return false;
       return !c.next_action || c.next_action.length > 80;
     },
     build({ commitment: c }) {
@@ -198,6 +198,7 @@ const RULES = [
   {
     id: 'R8_stale_commitment',
     matches({ commitment: c, stats }) {
+      if (c.is_fixed) return false; // an appointment doesn't go stale the way a neglected task does
       const daysSilent = stats.daysSinceLastCheckin ?? 999;
       return daysSilent >= 7 && c.status === 'active';
     },

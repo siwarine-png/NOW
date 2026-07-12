@@ -3,16 +3,17 @@
  * Returns { missedYesterday, completionRate14d, streak, daysSinceLastCheckin,
  *           lastResultToday, lastCheckinAt }
  *
- * checkedInToday's name is a slight misnomer for cadence='monthly': it means
- * "already satisfied for the current cadence period" -- a day for
- * once/daily (unchanged), the calendar month-to-date for monthly. Kept the
- * same field name rather than renaming it everywhere, since every caller
- * (interventions.js, commitments.js's /today, scheduler.js's push ticks)
- * already just gates on "is this already done for now," which is exactly
- * what it still means, just over a longer period for a monthly task. Before
- * this, cadence='monthly' didn't exist and 'daily' was the only recurring
- * option, so a genuinely monthly task (e.g. "send provision budget to
- * sister") had no correct setting and nagged every day instead of once a month.
+ * checkedInToday's name is a slight misnomer for cadence='monthly'/'weekly':
+ * it means "already satisfied for the current cadence period" -- a day for
+ * once/daily (unchanged), the calendar week-to-date (Sunday start) for
+ * weekly, the calendar month-to-date for monthly. Kept the same field name
+ * rather than renaming it everywhere, since every caller (interventions.js,
+ * commitments.js's /today, scheduler.js's push ticks) already just gates on
+ * "is this already done for now," which is exactly what it still means,
+ * just over a longer period. 'weekly' existed in the cadence CHECK
+ * constraint from the start but was never actually handled here until a
+ * recurring Event needed it -- it silently behaved like 'daily' before
+ * this, resetting every day instead of once a week.
  */
 const sb = require('../db/client');
 
@@ -23,11 +24,15 @@ async function loadStats(commitmentId, cadence) {
   const yesterdayEnd = new Date(todayStart);
   const fourteenDaysAgo = new Date(now); fourteenDaysAgo.setDate(now.getDate()-14);
 
-  // Monthly cadence's "period" is month-to-date, not today -- and that can
-  // reach further back than the usual 14-day lookback (e.g. day 20 of a
-  // 30-day month), so the fetch window has to extend to cover it or an
-  // earlier-in-the-month checkin would be invisible here.
-  const periodStart = cadence === 'monthly' ? new Date(now.getFullYear(), now.getMonth(), 1) : todayStart;
+  // Monthly cadence's "period" is month-to-date, weekly's is week-to-date
+  // (Sunday-start) -- both can reach further back than the usual 14-day
+  // lookback (e.g. day 20 of a 30-day month), so the fetch window has to
+  // extend to cover it or an earlier-in-the-period checkin would be
+  // invisible here.
+  const weekStart = new Date(todayStart); weekStart.setDate(weekStart.getDate() - weekStart.getDay());
+  const periodStart = cadence === 'monthly' ? new Date(now.getFullYear(), now.getMonth(), 1)
+    : cadence === 'weekly' ? weekStart
+    : todayStart;
   const fetchSince = periodStart < fourteenDaysAgo ? periodStart : fourteenDaysAgo;
 
   const { data: checkins } = await sb

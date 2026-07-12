@@ -17,8 +17,8 @@
  * screen transition. Continue is disabled until both are set. What KIND of
  * thing this is decides the whole shape of what follows (does it even need
  * a time? a due date? a sequence of steps?), which of the 6 axes it
- * belongs to doesn't, so axis is still asked afterward, separately. Four
- * genuinely different structures, not four labels on the same shape:
+ * belongs to doesn't, so axis is still asked afterward, separately. Five
+ * genuinely different structures, not five labels on the same shape:
  *  - Task, with a due time/date: date -> time -> deadline flow, cadence
  *    forced to 'once'. "Right now, can't wait" (priority_tier: 'critical',
  *    no window at all) lives as a chip on the date screen rather than its
@@ -42,6 +42,14 @@
  *    Arc's checklist uses (see engine/decomposition.js). Before this there
  *    was no way to create an actual multi-step project through the UI at
  *    all -- Day Arc only exists because it was hand-seeded via SQL.
+ *  - Event: something you attend, not something you do -- no urgency
+ *    question, no start-vs-deadline framing (an appointment just HAS a
+ *    time), and is_fixed: true (migration 026) exempts it from R4's "define
+ *    your first physical step" and R8's "this has gone stale" nags, neither
+ *    of which make sense for an appointment. One time goes through the same
+ *    date step task_due uses (minus the "right now, can't wait" chip -- an
+ *    appointment already has a schedule by definition); "it repeats" reuses
+ *    the same recurrence picker habits use (daily/weekly/monthly).
  *
  * STEP_AXIS tags the new commitment with an Adaptive Allocation Engine
  * identity_axis (migration 016) -- one tap, no typing.
@@ -69,6 +77,7 @@ const STEP_TIME = 4;
 const STEP_TIME_MEANING = 5;
 const STEP_DURATION = 6;
 const STEP_PROJECT_STEP = 8;
+const STEP_EVENT_TYPE = 9;
 
 const DURATIONS = [
   { label: '15 min', minutes: 15 },
@@ -82,6 +91,7 @@ const KIND_OPTIONS = [
   { value: 'task_no_due', label: 'Task (someday)' },
   { value: 'habit', label: 'Habit' },
   { value: 'project', label: 'Project' },
+  { value: 'event', label: 'Event' },
 ];
 
 const AXES = [
@@ -228,11 +238,21 @@ export default function AddPainPointScreen({ user, onCreated, secondaryActionLab
     if (itemKind === 'task_due') setStep(STEP_DATE);
     else if (itemKind === 'task_no_due') createAndReset({}, axisKey);
     else if (itemKind === 'habit') setStep(STEP_RECURRENCE);
+    else if (itemKind === 'event') setStep(STEP_EVENT_TYPE);
     else {
       setProjectSteps([]);
       setCurrentStepInput('');
       setStep(STEP_PROJECT_STEP);
     }
+  }
+
+  // "One time" goes straight to the date step (shared with task_due, minus
+  // its "right now, can't wait" chip -- an appointment already has a
+  // schedule by definition, there's no "can't wait, no schedule" mode for
+  // it). "It repeats" goes to the same recurrence picker habits use.
+  function chooseEventType(recurring) {
+    if (recurring) setStep(STEP_RECURRENCE);
+    else { setCadence('once'); setStep(STEP_DATE); }
   }
 
   function chooseCadence(value) {
@@ -247,12 +267,13 @@ export default function AddPainPointScreen({ user, onCreated, secondaryActionLab
     setStep(STEP_TIME);
   }
 
-  // Habits skip the "start time vs deadline" question entirely (neither
-  // framing fits something recurring) and submit directly; tasks continue
-  // to STEP_TIME_MEANING as before.
+  // Habits and events both skip the "start time vs deadline" question
+  // entirely (neither framing fits something recurring, and an appointment
+  // just HAS a time, it doesn't "start around" or "deadline" toward one)
+  // and submit directly; tasks continue to STEP_TIME_MEANING as before.
   function continueFromTime(t) {
     setTime(t);
-    if (itemKind === 'habit') submit(t);
+    if (itemKind === 'habit' || itemKind === 'event') submit(t);
     else setStep(STEP_TIME_MEANING);
   }
 
@@ -365,12 +386,17 @@ export default function AddPainPointScreen({ user, onCreated, secondaryActionLab
   }
 
   // {time} is when to start — the plain "we'll nudge you around then" case.
-  // due_date only applies to task_due -- habits reach this same function
-  // straight from continueFromTime and have no due_date concept at all.
+  // due_date only applies to task_due and a one-time event (cadence
+  // 'once') -- a recurring event or habit has no specific calendar date,
+  // just a time-of-day. is_fixed marks an event as external/fixed time
+  // (see migration 026) -- exempts it from R4/R8's task-oriented nags,
+  // since an appointment has no "first physical step" and doesn't go
+  // stale the way a neglected task does.
   function submit(finalTime) {
     return createAndReset({
       window_start: finalTime, window_end: addMinutesToTime(finalTime, 60),
       ...(itemKind === 'task_due' ? { due_date: dueDate } : {}),
+      ...(itemKind === 'event' ? { is_fixed: true, ...(cadence === 'once' ? { due_date: dueDate } : {}) } : {}),
     });
   }
 
@@ -438,14 +464,19 @@ export default function AddPainPointScreen({ user, onCreated, secondaryActionLab
   // reached without a whole separate step first.
   if (step === STEP_DATE) return (
     <View style={s.center}>
-      <Text style={s.title}>What day{'\n'}is this due?</Text>
+      <Text style={s.title}>{itemKind === 'event' ? 'What day\nis this?' : 'What day\nis this due?'}</Text>
       <Text style={s.hint}>We'll ask what time next.</Text>
 
       {!pickingDate ? (
         <>
-          <TouchableOpacity style={[s.btn, loading && s.btnDisabled]} disabled={loading} onPress={submitUrgent}>
-            {loading ? <ActivityIndicator color="#fff" /> : <Text style={s.btnText}>Right now — can't wait</Text>}
-          </TouchableOpacity>
+          {/* "Right now, can't wait" only makes sense for a task -- a
+              one-time event already has a definite schedule by nature,
+              there's no "no schedule, just do it now" mode for it. */}
+          {itemKind === 'task_due' && (
+            <TouchableOpacity style={[s.btn, loading && s.btnDisabled]} disabled={loading} onPress={submitUrgent}>
+              {loading ? <ActivityIndicator color="#fff" /> : <Text style={s.btnText}>Right now — can't wait</Text>}
+            </TouchableOpacity>
+          )}
           <TouchableOpacity style={[s.btn, s.btnSecondary]} onPress={() => chooseDate(todayDateKey())} disabled={loading}>
             <Text style={s.btnText}>Today</Text>
           </TouchableOpacity>
@@ -532,11 +563,30 @@ export default function AddPainPointScreen({ user, onCreated, secondaryActionLab
     </View>
   );
 
+  if (step === STEP_EVENT_TYPE) return (
+    <View style={s.center}>
+      <Text style={s.title}>Is this{'\n'}one time, or does it repeat?</Text>
+      <TouchableOpacity style={s.btn} onPress={() => chooseEventType(false)}>
+        <Text style={s.btnText}>One time</Text>
+      </TouchableOpacity>
+      <TouchableOpacity style={[s.btn, s.btnSecondary]} onPress={() => chooseEventType(true)}>
+        <Text style={s.btnText}>It repeats</Text>
+      </TouchableOpacity>
+    </View>
+  );
+
   if (step === STEP_RECURRENCE) return (
     <View style={s.center}>
       <Text style={s.title}>How often{'\n'}will you do this?</Text>
       <TouchableOpacity style={s.btn} onPress={() => chooseCadence('daily')}>
         <Text style={s.btnText}>Every day</Text>
+      </TouchableOpacity>
+      {/* Weekly existed in the cadence column's own CHECK constraint from
+          the start but was never actually offered anywhere until a
+          recurring Event needed it (stats.js's period math now handles it
+          too -- see migration history). */}
+      <TouchableOpacity style={[s.btn, s.btnSecondary]} onPress={() => chooseCadence('weekly')}>
+        <Text style={s.btnText}>Every week</Text>
       </TouchableOpacity>
       {/* Without this, something genuinely monthly (e.g. "send provision
           budget to sister") had no correct option and defaulted to 'daily' --
@@ -552,7 +602,9 @@ export default function AddPainPointScreen({ user, onCreated, secondaryActionLab
   if (step === STEP_TIME) return (
     <View style={s.center}>
       <Text style={s.title}>What time{'\n'}are we talking about?{'\n'}{formatDisplayTime(time)}</Text>
-      <Text style={s.hint}>{itemKind === 'task_due' ? `${formatDisplayDate(dueDate)}. Good?` : 'Good?'}</Text>
+      <Text style={s.hint}>
+        {(itemKind === 'task_due' || (itemKind === 'event' && cadence === 'once')) ? `${formatDisplayDate(dueDate)}. Good?` : 'Good?'}
+      </Text>
 
       {!pickingTime ? (
         <>
