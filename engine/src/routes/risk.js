@@ -17,7 +17,7 @@ router.get('/', async (req, res) => {
     .from('commitments').select('*').eq('user_id', user_id).eq('status', 'active');
 
   const results = await Promise.all((commitments || []).map(async c => {
-    const stats = await loadStats(c.id);
+    const stats = await loadStats(c.id, c.cadence);
     const { score, top_factor, factors } = scoreRisk(c, stats);
     return {
       commitment_id: c.id,

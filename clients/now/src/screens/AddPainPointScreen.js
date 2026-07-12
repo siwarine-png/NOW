@@ -197,6 +197,14 @@ export default function AddPainPointScreen({ user, onCreated }) {
       <TouchableOpacity style={[s.btn, s.btnSecondary]} onPress={() => chooseCadence('daily')}>
         <Text style={s.btnText}>Every day</Text>
       </TouchableOpacity>
+      {/* Without this, something genuinely monthly (e.g. "send provision
+          budget to sister") had no correct option and defaulted to 'daily' --
+          nagging every single day instead of going quiet once done until
+          next month. Reuses the same time-of-day question below; 'monthly'
+          just changes when it resets (see stats.js's cadence-aware period). */}
+      <TouchableOpacity style={[s.btn, s.btnSecondary]} onPress={() => chooseCadence('monthly')}>
+        <Text style={s.btnText}>Once a month</Text>
+      </TouchableOpacity>
     </View>
   );
 

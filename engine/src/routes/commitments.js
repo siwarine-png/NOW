@@ -81,7 +81,7 @@ router.get('/today', async (req, res) => {
   let doneCount = 0;
 
   for (const c of commitments || []) {
-    const stats = await loadStats(c.id);
+    const stats = await loadStats(c.id, c.cadence);
     if (stats.checkedInToday) doneCount++;
 
     const row = {

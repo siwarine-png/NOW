@@ -48,7 +48,7 @@ router.get('/now', async (req, res) => {
   // fight to a domain task just because its computed risk score is lower.
   const criticalCommitments = surfaceable.filter(c => c.priority_tier === 'critical');
   for (const c of criticalCommitments) {
-    const stats = await loadStats(c.id);
+    const stats = await loadStats(c.id, c.cadence);
     if (stats.checkedInToday) continue;
     const ctx = { commitment: c, stats, energy: energyNum, checkedInToday: false, nowMin };
     const result = evaluate(ctx);
@@ -95,7 +95,7 @@ router.get('/now', async (req, res) => {
   );
   if (dueNow.length) {
     const scored = (await Promise.all(dueNow.map(async c => {
-      const stats = await loadStats(c.id);
+      const stats = await loadStats(c.id, c.cadence);
       if (stats.checkedInToday) return null;
       const { score } = scoreRisk(c, stats);
       return { commitment: c, stats, score };
@@ -204,7 +204,7 @@ router.get('/now', async (req, res) => {
   // Score all commitments, pick highest risk
   const scored = await Promise.all(
     available.map(async c => {
-      const stats = await loadStats(c.id);
+      const stats = await loadStats(c.id, c.cadence);
       const { score, top_factor, factors } = scoreRisk(c, stats);
       return { commitment: c, stats, score, top_factor, factors };
     })

@@ -98,7 +98,7 @@ router.post('/', async (req, res) => {
     .gte('issued_at', since);
 
   // Compute updated stats & risk for response
-  const stats = await loadStats(commitment_id);
+  const stats = await loadStats(commitment_id, commitment.cadence);
   const { score: risk, top_factor } = scoreRisk(commitment, stats);
 
   log(req.app_id, userId, 'checkin.created', {

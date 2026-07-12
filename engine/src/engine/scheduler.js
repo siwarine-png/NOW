@@ -36,7 +36,7 @@ async function runSchedulerTick() {
         // Same window gate as GET /interventions/now — a commitment outside its
         // own "only nudge me between X-Y" window shouldn't fire proactively either.
         if (!isWithinWindow(nowMin, c.window_start, c.window_end)) continue;
-        const stats = await loadStats(c.id);
+        const stats = await loadStats(c.id, c.cadence);
         if (stats.checkedInToday) continue;
 
         const { score } = scoreRisk(c, stats);
@@ -94,7 +94,7 @@ async function pickCommitmentPushBody(userId, nowMin, now) {
   if (!candidates.length) return null;
 
   const scored = await Promise.all(candidates.map(async c => {
-    const stats = await loadStats(c.id);
+    const stats = await loadStats(c.id, c.cadence);
     if (stats.checkedInToday) return null;
     const { score } = scoreRisk(c, stats);
     return { c, score };
@@ -134,7 +134,7 @@ async function runCommitmentPushTick() {
       if (nowMin < startMin || nowMin >= startMin + 5) continue;
       if (c.last_notified_at && dateKeyInTz(new Date(c.last_notified_at), user.timezone) === dateKeyInTz(now, user.timezone)) continue;
 
-      const stats = await loadStats(c.id);
+      const stats = await loadStats(c.id, c.cadence);
       if (stats.checkedInToday) continue;
 
       await sendCheckinPush(user.id, user, 'Time for this', c.next_action || c.title);
