@@ -86,6 +86,15 @@ export async function createCommitment(payload) {
   return request('POST', '/commitments', payload);
 }
 
+// Raw list, all fields -- used by the Projects tab to group commitments by
+// parent_commitment_id client-side (no dedicated "projects" table/endpoint;
+// a project IS just a commitment other commitments reference as their parent,
+// same decomposition mechanic Day Arc's checklist uses).
+export async function getCommitments(user_id, status) {
+  const params = new URLSearchParams({ user_id, ...(status ? { status } : {}) });
+  return request('GET', `/commitments?${params}`);
+}
+
 // Soft nudge shown before adding something new (AddPainPointScreen) -- never
 // blocks, just surfaces projects that have gone quiet for 7+ days so a new
 // idea doesn't silently join an already-growing pile of unfinished ones.

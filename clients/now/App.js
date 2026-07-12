@@ -20,6 +20,7 @@ import SettingsScreen from './src/screens/SettingsScreen';
 import AddPainPointScreen from './src/screens/AddPainPointScreen';
 import StuckScreen from './src/screens/StuckScreen';
 import IdentityScreen from './src/screens/IdentityScreen';
+import ProjectsScreen from './src/screens/ProjectsScreen';
 import BottomNav from './src/components/BottomNav';
 
 Notifications.setNotificationHandler({
@@ -46,11 +47,13 @@ class ErrorBoundary extends React.Component {
 
 // "now" covers both the Today dashboard and its focused single-action
 // drill-in -- both belong to the "Now" tab, just one level of navigation
-// apart. "stuck" and "stuck-new" both belong to the "I'm Stuck" tab
-// (triage first, "register something new" is one level in); "settings"
-// is its own top-level screen.
+// apart. "stuck" is its own tab (momentary triage only, no longer where
+// "add something new" lives by default -- that's "projects-new" below,
+// though the in-context link from being stuck still points at the same
+// AddPainPointScreen). "settings" is its own top-level screen.
 const NOW_TAB_SCREENS = ['today', 'now-focus'];
-const STUCK_TAB_SCREENS = ['stuck', 'stuck-new'];
+const STUCK_TAB_SCREENS = ['stuck'];
+const PROJECTS_TAB_SCREENS = ['projects', 'projects-new'];
 
 function App() {
   const [screen, setScreen] = useState('loading');
@@ -95,8 +98,11 @@ function App() {
     content = <NowScreen user={user} onSettings={() => setScreen('settings')} onBack={() => setScreen('today')} />;
   } else if (screen === 'stuck') {
     content = <StuckScreen user={user} onAddNew={() => setScreen('stuck-new')} />;
-  } else if (screen === 'stuck-new') {
-    content = <AddPainPointScreen user={user} onCreated={() => setScreen('today')} />;
+  } else if (screen === 'stuck-new' || screen === 'projects-new') {
+    const backTo = screen === 'projects-new' ? 'projects' : 'today';
+    content = <AddPainPointScreen user={user} onCreated={() => setScreen(backTo)} />;
+  } else if (screen === 'projects') {
+    content = <ProjectsScreen user={user} onAddNew={() => setScreen('projects-new')} />;
   } else if (screen === 'identity') {
     content = <IdentityScreen user={user} onBack={() => setScreen('today')} />;
   } else {
@@ -109,9 +115,16 @@ function App() {
       <View style={s.appRoot}>
         <View style={s.content}>{content}</View>
         <BottomNav
-          active={STUCK_TAB_SCREENS.includes(screen) ? 'stuck' : screen === 'identity' ? 'identity' : NOW_TAB_SCREENS.includes(screen) ? 'now' : null}
+          active={
+            STUCK_TAB_SCREENS.includes(screen) ? 'stuck'
+            : PROJECTS_TAB_SCREENS.includes(screen) ? 'projects'
+            : screen === 'identity' ? 'identity'
+            : NOW_TAB_SCREENS.includes(screen) ? 'now'
+            : null
+          }
           onStuck={() => setScreen('stuck')}
           onNow={() => setScreen('today')}
+          onProjects={() => setScreen('projects')}
           onIdentity={() => setScreen('identity')}
         />
       </View>
