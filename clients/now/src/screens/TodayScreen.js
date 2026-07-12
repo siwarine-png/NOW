@@ -129,12 +129,16 @@ export default function TodayScreen({ user, onOpenNow, onSettings }) {
   const load = useCallback(async () => {
     if (!user) return;
     setLoading(true);
-    try {
-      const [now, today] = await Promise.all([getInterventionNow(user.id), getTodaySchedule(user.id)]);
-      setDoNow(now);
-      setSchedule(today);
-    } catch { /* keep whatever was last shown rather than a broken empty screen */ }
-    finally { setLoading(false); }
+    // Independent try/catch per call, not Promise.all around both -- these
+    // are two unrelated data sources (the single "do this now" card vs. the
+    // whole day's schedule), and Promise.all fails fast: one throwing used
+    // to blank out BOTH, discarding a perfectly good schedule fetch just
+    // because the other one 404'd or 500'd. Each should only ever affect
+    // its own piece of the screen.
+    const nowPromise = getInterventionNow(user.id).then(setDoNow).catch(() => {});
+    const schedulePromise = getTodaySchedule(user.id).then(setSchedule).catch(() => {});
+    await Promise.all([nowPromise, schedulePromise]);
+    setLoading(false);
 
     // Best-effort, separate from the main load so a failure here never
     // blocks the actual home screen -- this is a sampling signal, not core.
