@@ -16,7 +16,12 @@
  * actually said mattered to them. The flexible pool (waking hours minus
  * whatever fixed time is known so far) splits proportional to priority
  * weight, floored per axis at AXIS_FLOORS so a low-priority axis never
- * reads as "zero hours desired" regardless of how it's weighted.
+ * reads as "zero hours desired" regardless of how it's weighted --
+ * whichever axis is weighted highest (a real standout, not just a tie at
+ * the default) additionally gets a stronger TOP_PRIORITY_FLOOR_FRACTION
+ * floor, a deliberately softer take on "168 Hours"'s protect-the-big-rocks-
+ * first idea (see that function's own comment for why full protection was
+ * rejected).
  *
  * Samples with is_fixed = true count toward fixed_hours_per_week --
  * non-negotiable time future allocation logic must not suggest moving.
@@ -58,6 +63,19 @@ const MIN_CONFIDENT_SAMPLES = 10; // same "enough data" threshold interventions.
 const DEFAULT_PRIORITY = 3; // mid-scale, matches OnboardingScreen.js's DEFAULT_IDENTITY_PRIORITIES
 const AXIS_FLOORS = { relationships: 3, finance: 2 };
 
+// "168 Hours" (Vanderkam) argues for protecting your top 2-3 priorities'
+// full hours first, then fitting everything else into what's left. Full
+// protection is deliberately NOT what this does -- if the flexible pool
+// shrinks (more fixed/"I'm busy" time shows up), fully reserving the top
+// axis's hours means every OTHER axis absorbs the entire squeeze, which for
+// severe ADHD risks exactly the burnout pattern this app watches for
+// (achievement crowding out recreation/relationships to near zero the
+// moment things get busy). Instead, whichever axis (or axes, on a tie) the
+// user weighted highest just gets a stronger floor than AXIS_FLOORS gives
+// everyone else -- protected, but everything else still keeps a real,
+// non-zero share instead of being reduced to whatever's left over.
+const TOP_PRIORITY_FLOOR_FRACTION = 0.3;
+
 // priorities: {axis: 1-5} from users.identity_priorities (onboarding's tap-
 // only priority step). fixedHoursByAxis: this call's own per-axis
 // fixed_hours_per_week, nulls treated as 0 -- early on (day 1, or before
@@ -71,11 +89,17 @@ function computeDesiredHoursPerWeek(priorities, wakingHoursPerWeek, fixedHoursBy
 
   const weights = AXES.map(axis => priorities?.[axis] ?? DEFAULT_PRIORITY);
   const totalWeight = weights.reduce((a, b) => a + b, 0) || 1;
+  // Only a genuine standout counts as a "big rock" -- if every axis is
+  // still at the untouched default (or a real tie at the max), nothing here
+  // is actually a stated top priority, so no artificial floor should kick in.
+  const maxWeight = Math.max(...weights);
 
   const desired = {};
   AXES.forEach((axis, i) => {
     const proportional = (weights[i] / totalWeight) * flexiblePool;
-    desired[axis] = Math.round(Math.max(proportional, AXIS_FLOORS[axis] || 0) * 10) / 10;
+    const isTopPriority = weights[i] === maxWeight && maxWeight > DEFAULT_PRIORITY;
+    const floor = Math.max(AXIS_FLOORS[axis] || 0, isTopPriority ? flexiblePool * TOP_PRIORITY_FLOOR_FRACTION : 0);
+    desired[axis] = Math.round(Math.max(proportional, floor) * 10) / 10;
   });
   return desired;
 }
