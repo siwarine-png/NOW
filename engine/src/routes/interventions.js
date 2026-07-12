@@ -2,7 +2,7 @@ const { Router } = require('express');
 const sb = require('../db/client');
 const { loadStats } = require('../engine/stats');
 const { scoreRisk } = require('../engine/risk');
-const { evaluate, isWithinWindow, nowMinutesInTz } = require('../engine/rules');
+const { evaluate, isWithinWindow, nowMinutesInTz, isDueByToday } = require('../engine/rules');
 const { pickDomainIntervention } = require('../engine/domainRules');
 const { log } = require('../engine/events');
 
@@ -47,7 +47,12 @@ router.get('/now', async (req, res) => {
   const parentIdsWithOpenChildren = new Set(
     (allCommitments || []).filter(c => c.parent_commitment_id).map(c => c.parent_commitment_id)
   );
-  const surfaceable = (allCommitments || []).filter(c => !parentIdsWithOpenChildren.has(c.id));
+  // A future due_date (a task scheduled for a specific later day, not just a
+  // time-of-day) means "not yet" -- it shouldn't win the rotation or fire a
+  // push before its own day arrives.
+  const surfaceable = (allCommitments || [])
+    .filter(c => !parentIdsWithOpenChildren.has(c.id))
+    .filter(c => isDueByToday(c.due_date, user.timezone));
 
   // Critical commitments (e.g. a medication reminder established via the
   // Adaptive Nudge Engine) override the domain system below AND the normal

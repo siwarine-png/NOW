@@ -8,7 +8,7 @@ const webpush = require('web-push');
 const sb = require('../db/client');
 const { loadStats } = require('./stats');
 const { scoreRisk } = require('./risk');
-const { evaluate, isWithinWindow, nowMinutesInTz } = require('./rules');
+const { evaluate, isWithinWindow, nowMinutesInTz, isDueByToday } = require('./rules');
 const { pickDomainIntervention } = require('./domainRules');
 const { deliver } = require('./webhooks');
 const { log } = require('./events');
@@ -33,6 +33,9 @@ async function runSchedulerTick() {
 
       for (const c of commitments) {
         if (c.snoozed_until && new Date(c.snoozed_until) > new Date()) continue;
+        // A task scheduled for a future calendar date shouldn't fire before
+        // that day, same as GET /interventions/now's own surfaceable filter.
+        if (!isDueByToday(c.due_date, user.timezone)) continue;
         // Same window gate as GET /interventions/now — a commitment outside its
         // own "only nudge me between X-Y" window shouldn't fire proactively either.
         if (!isWithinWindow(nowMin, c.window_start, c.window_end)) continue;
@@ -92,10 +95,11 @@ function isBusy(user) {
 // this is a best-effort richer preview for a lock-screen notification, not
 // the authoritative pick GET /interventions/now still makes once the app is
 // actually opened.
-async function pickCommitmentPushBody(userId, nowMin, now) {
+async function pickCommitmentPushBody(userId, nowMin, now, timezone) {
   const { data: commitments } = await sb
     .from('commitments').select('*').eq('user_id', userId).eq('status', 'active');
   const candidates = (commitments || []).filter(c =>
+    isDueByToday(c.due_date, timezone) &&
     isWithinWindow(nowMin, c.window_start, c.window_end) &&
     (!c.snoozed_until || new Date(c.snoozed_until) <= now)
   );
@@ -136,6 +140,7 @@ async function runCommitmentPushTick() {
 
     for (const c of commitments) {
       if (c.snoozed_until && new Date(c.snoozed_until) > now) continue;
+      if (!isDueByToday(c.due_date, user.timezone)) continue;
       const [wh, wm] = c.window_start.split(':').map(Number);
       const startMin = wh * 60 + wm;
       // Fire once, within the 5-minute window starting at window_start —
@@ -187,7 +192,7 @@ async function runPushReminderTick() {
       const domainResult = await pickDomainIntervention(sb, user.id);
       if (domainResult?.all_done) body = "You're all caught up today. No pressure — just checking in.";
       else if (domainResult?.message) body = domainResult.message;
-      else body = await pickCommitmentPushBody(user.id, nowMin, now) || body;
+      else body = await pickCommitmentPushBody(user.id, nowMin, now, user.timezone) || body;
     } catch (e) {
       console.error('[push] domain lookup failed for user', user.id, e.message);
     }

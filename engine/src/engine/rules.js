@@ -227,4 +227,22 @@ function evaluate(ctx) {
   return null;
 }
 
-module.exports = { evaluate, RULES, isWithinWindow, nowMinutesInTz };
+// "Today," expressed as a YYYY-MM-DD key in the user's own timezone -- same
+// reasoning as nowMinutesInTz: a due_date is a plain calendar date with no
+// timezone of its own, so comparing it against the server's UTC day would
+// misfire near midnight for anyone west of UTC.
+function todayKeyInTz(timezone) {
+  return new Intl.DateTimeFormat('en-CA', { timeZone: timezone || 'UTC' }).format(new Date());
+}
+
+// A future due_date means "not yet" -- the commitment exists, it just
+// shouldn't surface or push before its day arrives. No due_date (the common
+// case -- habits, medication, anything not date-bound) always passes. A
+// past due_date (overdue, still not done) also passes -- it should keep
+// nagging, not silently vanish once its day is over.
+function isDueByToday(dueDate, timezone) {
+  if (!dueDate) return true;
+  return dueDate <= todayKeyInTz(timezone);
+}
+
+module.exports = { evaluate, RULES, isWithinWindow, nowMinutesInTz, todayKeyInTz, isDueByToday };

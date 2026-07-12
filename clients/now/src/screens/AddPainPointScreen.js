@@ -19,8 +19,12 @@
  * a time? a due date? a sequence of steps?), which of the 6 axes it
  * belongs to doesn't, so axis is still asked afterward, separately. Four
  * genuinely different structures, not four labels on the same shape:
- *  - Task, with a due time/date: the existing urgency -> time -> deadline
- *    flow, cadence forced to 'once'.
+ *  - Task, with a due time/date: the existing urgency -> date -> time ->
+ *    deadline flow, cadence forced to 'once'. due_date (migration 025) is
+ *    the actual calendar date, separate from window_start/window_end
+ *    (which are just a time-of-day, no date of their own) -- without it, a
+ *    task scheduled for a specific future day had no way to say so and
+ *    would nag every day at that time forever instead of just its one day.
  *  - Task, no due date: submits immediately after axis is picked -- no
  *    time, no urgency, no deadline. Genuinely open-ended ("someday, not
  *    scheduled") is a real, common shape that forcing a time onto
@@ -58,6 +62,7 @@ const STEP_TITLE = 0;
 const STEP_AXIS = 1;
 const STEP_URGENCY = 2;
 const STEP_RECURRENCE = 3;
+const STEP_DATE = 7;
 const STEP_TIME = 4;
 const STEP_TIME_MEANING = 5;
 const STEP_DURATION = 6;
@@ -116,6 +121,50 @@ function formatDisplayTime(hhmm) {
   return `${h12}:${String(m).padStart(2, '0')} ${period}`;
 }
 
+// YYYY-MM-DD in the device's own local calendar -- deliberately not
+// toISOString() (that's UTC and can land on the wrong day near midnight),
+// matches the plain `date` column due_date is stored as (migration 025).
+function dateToKey(d) {
+  return `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, '0')}-${String(d.getDate()).padStart(2, '0')}`;
+}
+
+function todayDateKey() {
+  return dateToKey(new Date());
+}
+
+function addDaysDateKey(days) {
+  const d = new Date();
+  d.setDate(d.getDate() + days);
+  return dateToKey(d);
+}
+
+// Accepts "7/20" or "7/20/2027" -- no year assumes the next upcoming
+// occurrence of that month/day (today counts as upcoming), since typing a
+// year for something happening this year is friction nobody wants.
+function parseDateInput(raw) {
+  if (!raw?.trim()) return null;
+  const parts = raw.trim().split('/').map(s => s.trim()).filter(Boolean);
+  if (parts.length < 2) return null;
+  const month = Math.min(Math.max(parseInt(parts[0], 10) || 0, 1), 12);
+  const day = Math.min(Math.max(parseInt(parts[1], 10) || 0, 1), 31);
+  let year = parts[2] ? parseInt(parts[2], 10) : new Date().getFullYear();
+  if (parts[2] && parts[2].length <= 2) year += 2000;
+  let d = new Date(year, month - 1, day);
+  if (!parts[2]) {
+    const todayMidnight = new Date(); todayMidnight.setHours(0, 0, 0, 0);
+    if (d < todayMidnight) d = new Date(year + 1, month - 1, day);
+  }
+  return dateToKey(d);
+}
+
+function formatDisplayDate(dateKey) {
+  if (!dateKey) return '';
+  if (dateKey === todayDateKey()) return 'Today';
+  if (dateKey === addDaysDateKey(1)) return 'Tomorrow';
+  const [y, m, d] = dateKey.split('-').map(Number);
+  return new Date(y, m - 1, d).toLocaleDateString('en-US', { weekday: 'short', month: 'short', day: 'numeric' });
+}
+
 // secondaryActionLabel/onSecondaryAction: optional, shown only on the blank
 // STEP_TITLE screen -- used by OnboardingScreen's day-1 "add as many real
 // things as apply to you, or nothing at all" open loop (see its own header
@@ -131,6 +180,9 @@ export default function AddPainPointScreen({ user, onCreated, secondaryActionLab
   const [time, setTime] = useState(defaultTime());
   const [pickingTime, setPickingTime] = useState(false);
   const [customTime, setCustomTime] = useState('');
+  const [dueDate, setDueDate] = useState(todayDateKey());
+  const [pickingDate, setPickingDate] = useState(false);
+  const [customDateInput, setCustomDateInput] = useState('');
   const [loading, setLoading] = useState(false);
   const [itemKind, setItemKind] = useState(null); // 'task' | 'habit' | 'project'
   const [projectSteps, setProjectSteps] = useState([]);
@@ -180,6 +232,13 @@ export default function AddPainPointScreen({ user, onCreated, secondaryActionLab
 
   function chooseCadence(value) {
     setCadence(value);
+    setStep(STEP_TIME);
+  }
+
+  function chooseDate(dateKey) {
+    setDueDate(dateKey);
+    setPickingDate(false);
+    setCustomDateInput('');
     setStep(STEP_TIME);
   }
 
@@ -241,6 +300,9 @@ export default function AddPainPointScreen({ user, onCreated, secondaryActionLab
     setPickingTime(false);
     setCustomTime('');
     setTime(defaultTime());
+    setDueDate(todayDateKey());
+    setPickingDate(false);
+    setCustomDateInput('');
     setItemKind(null);
     setProjectSteps([]);
     setCurrentStepInput('');
@@ -280,23 +342,29 @@ export default function AddPainPointScreen({ user, onCreated, secondaryActionLab
   }
 
   // {time} is when to start — the plain "we'll nudge you around then" case.
+  // due_date only applies to task_due -- habits reach this same function
+  // straight from continueFromTime and have no due_date concept at all.
   function submit(finalTime) {
-    return createAndReset({ window_start: finalTime, window_end: addMinutesToTime(finalTime, 60) });
+    return createAndReset({
+      window_start: finalTime, window_end: addMinutesToTime(finalTime, 60),
+      ...(itemKind === 'task_due' ? { due_date: dueDate } : {}),
+    });
   }
 
   // {deadlineTime} is when it must be DONE by, not when to start -- back the
   // notification off by the estimated duration so there's actually enough
-  // time left to finish, instead of nudging at the deadline itself. Also
-  // sets the real `deadline` field (unused by the plain start-time path)
-  // so R7_deadline_proximity's own escalation can pick this up too.
+  // time left to finish, instead of nudging at the deadline itself. Only
+  // ever reached via task_due's own flow (STEP_TIME_MEANING -> STEP_DURATION),
+  // so due_date is always set by now -- built from the actually-picked date
+  // (STEP_DATE), not just assumed to be today.
   function submitWithDeadline(deadlineTime, durationMinutes) {
     const startTime = addMinutesToTime(deadlineTime, -durationMinutes);
     const [dh, dm] = deadlineTime.split(':').map(Number);
-    const deadlineDate = new Date();
-    deadlineDate.setHours(dh, dm, 0, 0);
+    const [dy, dmo, dd] = dueDate.split('-').map(Number);
+    const deadlineDate = new Date(dy, dmo - 1, dd, dh, dm, 0, 0);
     return createAndReset({
       window_start: startTime, window_end: deadlineTime,
-      deadline: deadlineDate.toISOString(),
+      deadline: deadlineDate.toISOString(), due_date: dueDate,
     });
   }
 
@@ -345,9 +413,44 @@ export default function AddPainPointScreen({ user, onCreated, secondaryActionLab
       <TouchableOpacity style={[s.btn, loading && s.btnDisabled]} disabled={loading} onPress={submitUrgent}>
         {loading ? <ActivityIndicator color="#fff" /> : <Text style={s.btnText}>Right now — can't wait</Text>}
       </TouchableOpacity>
-      <TouchableOpacity style={[s.btn, s.btnSecondary]} onPress={() => setStep(STEP_TIME)} disabled={loading}>
+      <TouchableOpacity style={[s.btn, s.btnSecondary]} onPress={() => setStep(STEP_DATE)} disabled={loading}>
         <Text style={s.btnText}>Not urgent — I'll schedule it</Text>
       </TouchableOpacity>
+    </View>
+  );
+
+  if (step === STEP_DATE) return (
+    <View style={s.center}>
+      <Text style={s.title}>What day{'\n'}is this due?</Text>
+      <Text style={s.hint}>We'll ask what time next.</Text>
+
+      {!pickingDate ? (
+        <>
+          <TouchableOpacity style={s.btn} onPress={() => chooseDate(todayDateKey())}>
+            <Text style={s.btnText}>Today</Text>
+          </TouchableOpacity>
+          <TouchableOpacity style={[s.btn, s.btnSecondary]} onPress={() => chooseDate(addDaysDateKey(1))}>
+            <Text style={s.btnText}>Tomorrow</Text>
+          </TouchableOpacity>
+          <TouchableOpacity style={s.linkBtn} onPress={() => setPickingDate(true)}>
+            <Text style={s.linkBtnText}>Pick a specific date</Text>
+          </TouchableOpacity>
+        </>
+      ) : (
+        <>
+          <TextInput
+            style={s.input} value={customDateInput} onChangeText={setCustomDateInput}
+            keyboardType="numbers-and-punctuation" placeholder="e.g. 7/20 for July 20" placeholderTextColor="#475569" autoFocus
+            onSubmitEditing={() => chooseDate(parseDateInput(customDateInput) || dueDate)} returnKeyType="next"
+          />
+          <TouchableOpacity
+            style={s.btn}
+            onPress={() => chooseDate(parseDateInput(customDateInput) || dueDate)}
+          >
+            <Text style={s.btnText}>Set and continue →</Text>
+          </TouchableOpacity>
+        </>
+      )}
     </View>
   );
 
@@ -407,7 +510,7 @@ export default function AddPainPointScreen({ user, onCreated, secondaryActionLab
   if (step === STEP_TIME) return (
     <View style={s.center}>
       <Text style={s.title}>What time{'\n'}are we talking about?{'\n'}{formatDisplayTime(time)}</Text>
-      <Text style={s.hint}>Good?</Text>
+      <Text style={s.hint}>{itemKind === 'task_due' ? `${formatDisplayDate(dueDate)}. Good?` : 'Good?'}</Text>
 
       {!pickingTime ? (
         <>

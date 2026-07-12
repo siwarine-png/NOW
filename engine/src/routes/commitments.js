@@ -2,7 +2,7 @@ const { Router } = require('express');
 const sb = require('../db/client');
 const { log } = require('../engine/events');
 const { loadStats } = require('../engine/stats');
-const { isWithinWindow, nowMinutesInTz } = require('../engine/rules');
+const { isWithinWindow, nowMinutesInTz, isDueByToday } = require('../engine/rules');
 const { advanceSiblingChain } = require('../engine/decomposition');
 const { getStalledProjects, reviewStaleProject } = require('../engine/projects');
 
@@ -17,7 +17,7 @@ function timeToMinutes(t) {
 // POST /commitments
 router.post('/', async (req, res) => {
   const { user_id, title, next_action, why, identity_tag, identity_axis,
-          cadence, window_start, window_end, deadline,
+          cadence, window_start, window_end, deadline, due_date,
           priority_tier, parent_commitment_id, status } = req.body;
 
   if (!user_id || !title) return res.status(400).json({ error: 'user_id and title required' });
@@ -44,7 +44,7 @@ router.post('/', async (req, res) => {
     // things that deliberately don't map to one (medication -- see the
     // column comment in migration 016).
     .insert({ user_id, title, next_action, why, identity_tag, identity_axis: identity_axis || null,
-              cadence: cadence || 'daily', window_start, window_end, deadline,
+              cadence: cadence || 'daily', window_start, window_end, deadline, due_date: due_date || null,
               priority_tier: priority_tier || 'normal', parent_commitment_id: parent_commitment_id || null,
               ...(status ? { status } : {}) })
     .select()
@@ -118,7 +118,14 @@ router.get('/today', async (req, res) => {
   const parentIdsWithOpenChildren = new Set(
     (allCommitments || []).filter(c => c.parent_commitment_id).map(c => c.parent_commitment_id)
   );
-  const commitments = (allCommitments || []).filter(c => !parentIdsWithOpenChildren.has(c.id));
+  // A task given a specific future due_date (AddPainPointScreen's date step)
+  // shouldn't clutter today's view before its day arrives -- only exclude
+  // future-dated ones; overdue (past due_date, still not done) keeps
+  // showing, same as it always did, since going quiet would just make it
+  // easy to forget entirely.
+  const commitments = (allCommitments || [])
+    .filter(c => !parentIdsWithOpenChildren.has(c.id))
+    .filter(c => isDueByToday(c.due_date, user.timezone));
   const nowMin = nowMinutesInTz(user.timezone);
 
   const earlier_today = [], happening_now = [], coming_up = [], anytime = [];
@@ -131,6 +138,7 @@ router.get('/today', async (req, res) => {
     const row = {
       commitment_id: c.id, title: c.title, window_start: c.window_start, window_end: c.window_end,
       priority_tier: c.priority_tier, done: stats.checkedInToday, identity_axis: c.identity_axis,
+      due_date: c.due_date,
     };
 
     if (!c.window_start || !c.window_end) { anytime.push(row); continue; }
@@ -170,7 +178,7 @@ router.get('/', async (req, res) => {
 // locks in whatever scope currently exists as done -- the API enforces the
 // ship, it doesn't just suggest it.
 router.patch('/:id', async (req, res) => {
-  const allowed = ['status', 'next_action', 'window_start', 'window_end', 'title', 'why', 'identity_tag', 'cadence', 'deadline', 'priority_tier'];
+  const allowed = ['status', 'next_action', 'window_start', 'window_end', 'title', 'why', 'identity_tag', 'cadence', 'deadline', 'due_date', 'priority_tier'];
   const { force_ship } = req.body;
   const updates = {};
   allowed.forEach(k => { if (req.body[k] !== undefined) updates[k] = req.body[k]; });
