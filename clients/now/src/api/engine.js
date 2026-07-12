@@ -86,6 +86,14 @@ export async function createCommitment(payload) {
   return request('POST', '/commitments', payload);
 }
 
+// Soft nudge shown before adding something new (AddPainPointScreen) -- never
+// blocks, just surfaces projects that have gone quiet for 7+ days so a new
+// idea doesn't silently join an already-growing pile of unfinished ones.
+export async function getStalledProjects(user_id) {
+  const params = new URLSearchParams({ user_id });
+  return request('GET', `/commitments/stalled-projects?${params}`);
+}
+
 // Used by Today's per-row "Remove" action -- a duplicate or no-longer-wanted
 // commitment is set to status 'abandoned' (not deleted) via the existing
 // PATCH /commitments/:id, which already allows updating status

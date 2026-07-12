@@ -14,11 +14,13 @@
  * STEP_AXIS tags the new commitment with an Adaptive Allocation Engine
  * identity_axis (migration 016) -- one tap, no typing.
  */
-import React, { useState } from 'react';
+import React, { useState, useEffect } from 'react';
 import { View, Text, TextInput, TouchableOpacity, StyleSheet, ActivityIndicator } from 'react-native';
-import { createCommitment } from '../api/engine';
+import { createCommitment, getStalledProjects } from '../api/engine';
 import { showAlert } from '../utils/alert';
 
+const STEP_CHECKING = -1;
+const STEP_STALE_NUDGE = -2;
 const STEP_TITLE = 0;
 const STEP_AXIS = 1;
 const STEP_URGENCY = 2;
@@ -74,7 +76,8 @@ function formatDisplayTime(hhmm) {
 }
 
 export default function AddPainPointScreen({ user, onCreated }) {
-  const [step, setStep] = useState(STEP_TITLE);
+  const [step, setStep] = useState(STEP_CHECKING);
+  const [staleProjects, setStaleProjects] = useState([]);
   const [customTitle, setCustomTitle] = useState('');
   const [identityAxis, setIdentityAxis] = useState(null);
   const [cadence, setCadence] = useState('daily');
@@ -82,6 +85,19 @@ export default function AddPainPointScreen({ user, onCreated }) {
   const [pickingTime, setPickingTime] = useState(false);
   const [customTime, setCustomTime] = useState('');
   const [loading, setLoading] = useState(false);
+
+  // Soft nudge, not a gate -- every path out of here (including a failed
+  // check) lands on the normal STEP_TITLE flow; this only ever adds one
+  // extra screen in front of it, never blocks adding something new.
+  useEffect(() => {
+    if (!user?.id) { setStep(STEP_TITLE); return; }
+    getStalledProjects(user.id)
+      .then(({ stalled }) => {
+        setStaleProjects(stalled || []);
+        setStep(stalled?.length ? STEP_STALE_NUDGE : STEP_TITLE);
+      })
+      .catch(() => setStep(STEP_TITLE));
+  }, [user?.id]);
 
   function continueFromTitle() {
     if (!customTitle.trim()) return;
@@ -162,6 +178,28 @@ export default function AddPainPointScreen({ user, onCreated }) {
       deadline: deadlineDate.toISOString(),
     });
   }
+
+  if (step === STEP_CHECKING) return (
+    <View style={s.center}><ActivityIndicator color="#6366f1" /></View>
+  );
+
+  if (step === STEP_STALE_NUDGE) return (
+    <View style={s.center}>
+      <Text style={s.title}>Before adding{'\n'}something new...</Text>
+      <Text style={s.hint}>These haven't moved in a while:</Text>
+      <View style={s.staleList}>
+        {staleProjects.map(p => (
+          <View key={p.commitment_id} style={s.staleRow}>
+            <Text style={s.staleTitle}>{p.title}</Text>
+            <Text style={s.staleDays}>quiet {p.days_stalled}d</Text>
+          </View>
+        ))}
+      </View>
+      <TouchableOpacity style={s.btn} onPress={() => setStep(STEP_TITLE)}>
+        <Text style={s.btnText}>Continue anyway →</Text>
+      </TouchableOpacity>
+    </View>
+  );
 
   if (step === STEP_AXIS) return (
     <View style={s.center}>
@@ -303,4 +341,8 @@ const s = StyleSheet.create({
   chipGrid: { flexDirection: 'row', flexWrap: 'wrap', justifyContent: 'center', gap: 10, maxWidth: 340 },
   chip: { backgroundColor: '#1e293b', borderRadius: 20, paddingVertical: 10, paddingHorizontal: 16, borderWidth: 1, borderColor: '#334155' },
   chipText: { color: '#f1f5f9', fontSize: 14, fontWeight: '600' },
+  staleList: { width: '100%', maxWidth: 300, marginBottom: 24 },
+  staleRow: { flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center', paddingVertical: 10, borderBottomWidth: 1, borderBottomColor: '#1e293b' },
+  staleTitle: { color: '#f1f5f9', fontSize: 14, fontWeight: '700', flex: 1, marginRight: 10 },
+  staleDays: { color: '#f59e0b', fontSize: 12, fontWeight: '700' },
 });

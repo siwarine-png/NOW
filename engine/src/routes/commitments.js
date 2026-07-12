@@ -4,6 +4,7 @@ const { log } = require('../engine/events');
 const { loadStats } = require('../engine/stats');
 const { isWithinWindow, nowMinutesInTz } = require('../engine/rules');
 const { advanceSiblingChain } = require('../engine/decomposition');
+const { getStalledProjects } = require('../engine/projects');
 
 const router = Router();
 
@@ -42,6 +43,16 @@ router.post('/', async (req, res) => {
 
   log(req.app_id, user_id, 'commitment.created', { commitment_id: data.id, title });
   res.status(201).json(data);
+});
+
+// GET /commitments/stalled-projects?user_id= — soft nudge, not a hard gate:
+// the client shows this before letting someone add something new, but
+// always lets them proceed anyway ("Continue anyway"). See engine/projects.js.
+router.get('/stalled-projects', async (req, res) => {
+  const { user_id } = req.query;
+  if (!user_id) return res.status(400).json({ error: 'user_id required' });
+  const stalled = await getStalledProjects(user_id);
+  res.json({ stalled });
 });
 
 // GET /commitments/suggestions — most commonly chosen titles across this app's
