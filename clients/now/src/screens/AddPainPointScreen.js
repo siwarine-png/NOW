@@ -11,22 +11,38 @@
  * to take medication"), which is the actually-adherence-aware path for
  * that -- this screen is only ever the 6-axis want/need spectrum now.
  *
- * STEP_AXIS tags the new commitment with an Adaptive Allocation Engine
- * identity_axis (migration 016) -- one tap, no typing.
- *
- * STEP_TYPE (after axis) splits into three genuinely different structures,
- * not just three labels on the same shape:
- *  - Task: one-time, a specific due time/date -- the existing urgency ->
- *    time -> deadline flow, cadence forced to 'once'.
- *  - Habit: recurring behavior -- daily/monthly cadence, a plain time-of-day,
- *    no urgency or deadline framing (neither fits something recurring).
- *  - Project: an ongoing outcome with multiple steps -- a NEW open loop
- *    (add step, add another, or that's all of them) that creates one parent
+ * STEP_TYPE comes right after the title now, before axis -- what KIND of
+ * thing this is decides the whole shape of what follows (does it even need
+ * a time? a due date? a sequence of steps?), which of the 6 axes it
+ * belongs to doesn't, so axis moved after it instead of before. Four
+ * genuinely different structures, not four labels on the same shape:
+ *  - Task, with a due time/date: the existing urgency -> time -> deadline
+ *    flow, cadence forced to 'once'.
+ *  - Task, no due date: submits immediately after axis is picked -- no
+ *    time, no urgency, no deadline. Genuinely open-ended ("someday, not
+ *    scheduled") is a real, common shape that forcing a time onto
+ *    previously had no path for.
+ *  - Habit: recurring behavior -- daily/monthly cadence, a plain
+ *    time-of-day, no urgency or deadline framing (neither fits something
+ *    recurring).
+ *  - Project: an ongoing outcome with multiple steps -- an open loop (add
+ *    step, add another, or that's all of them) that creates one parent
  *    commitment plus its steps as children (parent_commitment_id, first
  *    step 'active', the rest 'paused'), same decomposition mechanic Day
  *    Arc's checklist uses (see engine/decomposition.js). Before this there
  *    was no way to create an actual multi-step project through the UI at
  *    all -- Day Arc only exists because it was hand-seeded via SQL.
+ *
+ * STEP_AXIS tags the new commitment with an Adaptive Allocation Engine
+ * identity_axis (migration 016) -- one tap, no typing.
+ *
+ * A recurring behavior anchored to something relative rather than a clock
+ * time (medication "after breakfast/after lunch") isn't handled by the
+ * Habit path here at all -- it needs actual experimentation to find the
+ * real trigger moment, which is what the Adaptive Nudge Engine's separate
+ * "Remind me to take medication" flow (Settings) already does, tested
+ * against real anchors instead of guessing a fixed clock time. Route that
+ * case there, not through this screen.
  */
 import React, { useState, useEffect } from 'react';
 import { View, Text, TextInput, TouchableOpacity, StyleSheet, ActivityIndicator } from 'react-native';
@@ -126,24 +142,28 @@ export default function AddPainPointScreen({ user, onCreated, secondaryActionLab
 
   function continueFromTitle() {
     if (!customTitle.trim()) return;
-    setStep(STEP_AXIS);
-  }
-
-  function chooseAxis(axisKey) {
-    setIdentityAxis(axisKey);
     setStep(STEP_TYPE);
   }
 
-  // Task/habit/project are genuinely different structures (see header
-  // comment), not just labels -- each routes to its own flow from here.
+  // What KIND of thing this is comes before axis now -- it decides the
+  // whole shape of what follows (does it even need a time? a due date? a
+  // sequence of steps?), which axis it belongs to doesn't.
   function chooseKind(kind) {
     setItemKind(kind);
-    if (kind === 'task') {
-      setCadence('once');
-      setStep(STEP_URGENCY);
-    } else if (kind === 'habit') {
-      setStep(STEP_RECURRENCE);
-    } else {
+    if (kind === 'task_due' || kind === 'task_no_due') setCadence('once');
+    setStep(STEP_AXIS);
+  }
+
+  // Axis picked, now branch by the kind chosen a moment ago. task_no_due
+  // submits immediately from here -- axisKey is passed straight through
+  // rather than read from identityAxis state, since that state update
+  // hasn't committed yet within this same tap.
+  function chooseAxis(axisKey) {
+    setIdentityAxis(axisKey);
+    if (itemKind === 'task_due') setStep(STEP_URGENCY);
+    else if (itemKind === 'task_no_due') createAndReset({}, axisKey);
+    else if (itemKind === 'habit') setStep(STEP_RECURRENCE);
+    else {
       setProjectSteps([]);
       setCurrentStepInput('');
       setStep(STEP_PROJECT_STEP);
@@ -218,13 +238,17 @@ export default function AddPainPointScreen({ user, onCreated, secondaryActionLab
     setCurrentStepInput('');
   }
 
-  async function createAndReset(payload) {
+  // axisOverride: only needed by task_no_due's immediate submit from
+  // chooseAxis, where identityAxis state hasn't committed yet within the
+  // same tap -- every other caller relies on identityAxis already being
+  // settled by the time it runs.
+  async function createAndReset(payload, axisOverride) {
     if (!user?.id) return;
     setLoading(true);
     try {
       await createCommitment({
         user_id: user.id, title: customTitle.trim(), next_action: null,
-        cadence, priority_tier: 'normal', identity_axis: identityAxis,
+        cadence, priority_tier: 'normal', identity_axis: axisOverride ?? identityAxis,
         ...payload,
       });
       resetAll();
@@ -295,20 +319,28 @@ export default function AddPainPointScreen({ user, onCreated, secondaryActionLab
       <Text style={s.title}>Which part of your life{'\n'}does this belong to?</Text>
       <View style={s.chipGrid}>
         {AXES.map(a => (
-          <TouchableOpacity key={a.key} style={s.chip} onPress={() => chooseAxis(a.key)}>
+          <TouchableOpacity key={a.key} style={s.chip} disabled={loading} onPress={() => chooseAxis(a.key)}>
             <Text style={s.chipText}>{a.label}</Text>
           </TouchableOpacity>
         ))}
       </View>
+      {/* Only task_no_due submits immediately from this screen (see
+          chooseAxis) -- everyone else just moves on to the next step, so
+          this spinner only ever appears for that one path. */}
+      {loading && <ActivityIndicator color="#6366f1" style={{ marginTop: 20 }} />}
     </View>
   );
 
   if (step === STEP_TYPE) return (
     <View style={s.center}>
       <Text style={s.title}>What kind of{'\n'}thing is this?</Text>
-      <TouchableOpacity style={s.kindCard} onPress={() => chooseKind('task')}>
-        <Text style={s.kindCardTitle}>A task</Text>
-        <Text style={s.kindCardSub}>One-time, specific due time</Text>
+      <TouchableOpacity style={s.kindCard} onPress={() => chooseKind('task_due')}>
+        <Text style={s.kindCardTitle}>A task — with a due time/date</Text>
+        <Text style={s.kindCardSub}>One-time, scheduled</Text>
+      </TouchableOpacity>
+      <TouchableOpacity style={s.kindCard} onPress={() => chooseKind('task_no_due')}>
+        <Text style={s.kindCardTitle}>A task — no due date</Text>
+        <Text style={s.kindCardSub}>One-time, whenever you get to it</Text>
       </TouchableOpacity>
       <TouchableOpacity style={s.kindCard} onPress={() => chooseKind('habit')}>
         <Text style={s.kindCardTitle}>A habit</Text>
