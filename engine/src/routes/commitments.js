@@ -3,7 +3,7 @@ const sb = require('../db/client');
 const { log } = require('../engine/events');
 const { loadStats } = require('../engine/stats');
 const { isWithinWindow, nowMinutesInTz, isDueByToday } = require('../engine/rules');
-const { advanceSiblingChain } = require('../engine/decomposition');
+const { advanceSiblingChain, skipToNextStep } = require('../engine/decomposition');
 const { getStalledProjects, reviewStaleProject } = require('../engine/projects');
 
 const router = Router();
@@ -85,6 +85,23 @@ router.post('/:id/stale-review', async (req, res) => {
   const data = await reviewStaleProject(req.params.id, action, reason);
   log(req.app_id, current.user_id, 'project.stale_reviewed', { commitment_id: req.params.id, action, reason: reason || null });
   res.json(data);
+});
+
+// POST /commitments/:id/skip-step — Now's "Skip for now, move to next step"
+// snooze option, for a project step that isn't actually blocking what comes
+// after it (as opposed to "remind me later," the plain time-delay snooze,
+// for a step that genuinely is a prerequisite). Only valid on a step that's
+// actually part of a project (has parent_commitment_id) -- a standalone
+// quick task or habit has no "next step" to advance to.
+router.post('/:id/skip-step', async (req, res) => {
+  const { data: current } = await sb
+    .from('commitments').select('id, user_id, parent_commitment_id, users!inner(app_id)').eq('id', req.params.id).single();
+  if (!current || current.users.app_id !== req.app_id) return res.status(404).json({ error: 'Not found' });
+  if (!current.parent_commitment_id) return res.status(400).json({ error: 'Not a project step -- nothing to skip to' });
+
+  await skipToNextStep(current.id, current.parent_commitment_id);
+  log(req.app_id, current.user_id, 'commitment.step_skipped', { commitment_id: current.id, parent_commitment_id: current.parent_commitment_id });
+  res.status(204).end();
 });
 
 // GET /commitments/suggestions — most commonly chosen titles across this app's

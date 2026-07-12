@@ -153,6 +153,14 @@ export async function postSnooze(commitment_id, minutes, intervention_id) {
   });
 }
 
+// Now's "Skip for now, move to next step" -- distinct from postSnooze above
+// (which just delays the same step). Only valid on a project step (has
+// parent_commitment_id); pauses it and activates whichever step comes next
+// in the chain (see engine/decomposition.js's skipToNextStep).
+export async function skipProjectStep(commitment_id) {
+  return request('POST', `/commitments/${commitment_id}/skip-step`);
+}
+
 // Engine v8 domain system — check in against an outcome_equivalent instead of
 // a commitment. No intervention_id: the domain path doesn't persist an
 // `interventions` row (see engine/routes/interventions.js).

@@ -16,7 +16,7 @@ import {
   View, Text, TouchableOpacity, StyleSheet, ActivityIndicator,
   AppState, ScrollView,
 } from 'react-native';
-import { getInterventionNow, postCheckin, postSnooze, postEquivalentCheckin, updateUser, updateCommitment } from '../api/engine';
+import { getInterventionNow, postCheckin, postSnooze, postEquivalentCheckin, updateUser, updateCommitment, skipProjectStep } from '../api/engine';
 import { enqueue, flushQueue } from '../store/queue';
 import { cacheIntervention, getCachedIntervention, clearIntervention } from '../store/session';
 import TimerCountdown from '../components/TimerCountdown';
@@ -180,6 +180,22 @@ export default function NowScreen({ user, onSettings, onBack }) {
     setActing(false);
     // The engine now suppresses this commitment until the snooze expires, so
     // reloading immediately correctly shows "clear" (or the next-highest-risk one).
+    load();
+  }
+
+  // Only shown for a project step (parent_commitment_id set) -- "this one
+  // isn't actually blocking what's next" is a different call than "remind
+  // me about this same thing later" (handleSnooze above), and only makes
+  // sense when there's a chain to advance at all.
+  async function handleSkipStep() {
+    if (!intervention?.commitment_id) return;
+    setSnoozeOpen(false);
+    setActing(true);
+    try {
+      await skipProjectStep(intervention.commitment_id);
+    } catch (e) { /* best-effort -- worst case it just shows up again until retried */ }
+    await clearIntervention();
+    setActing(false);
     load();
   }
 
@@ -360,13 +376,26 @@ export default function NowScreen({ user, onSettings, onBack }) {
             </View>
 
             {snoozeOpen && (
-              <View style={s.snoozeOptions}>
-                {SNOOZE_OPTIONS.map(opt => (
-                  <TouchableOpacity key={opt.label} style={s.snoozeOpt} onPress={() => handleSnooze(opt)}>
-                    <Text style={s.snoozeOptText}>{opt.label}</Text>
+              <>
+                {/* Only a project step (parent_commitment_id set) has a "next
+                    step" to skip to at all -- decided here, in the moment,
+                    rather than declared upfront when the project was created:
+                    whether this step actually blocks what's after it is often
+                    only obvious once you're looking at it. Its own full-width
+                    row, not squeezed into the plain time-chip row below. */}
+                {intervention.parent_commitment_id && (
+                  <TouchableOpacity style={s.skipOpt} onPress={handleSkipStep}>
+                    <Text style={s.skipOptText}>Skip for now — move to next step</Text>
                   </TouchableOpacity>
-                ))}
-              </View>
+                )}
+                <View style={s.snoozeOptions}>
+                  {SNOOZE_OPTIONS.map(opt => (
+                    <TouchableOpacity key={opt.label} style={s.snoozeOpt} onPress={() => handleSnooze(opt)}>
+                      <Text style={s.snoozeOptText}>{opt.label}</Text>
+                    </TouchableOpacity>
+                  ))}
+                </View>
+              </>
             )}
 
             <TouchableOpacity style={s.linkBtn} onPress={handleRemove} disabled={acting}>
@@ -429,6 +458,8 @@ const s = StyleSheet.create({
   snoozeBtn: { flex: 1, backgroundColor: '#1e293b', borderRadius: 14, padding: 18, alignItems: 'center', borderWidth: 1, borderColor: '#334155' },
   snoozeBtnText: { color: '#94a3b8', fontSize: 14, fontWeight: '700' },
   btnDisabled: { opacity: 0.5 },
+  skipOpt: { backgroundColor: '#1e293b', borderRadius: 10, padding: 12, alignItems: 'center', borderWidth: 1, borderColor: '#6366f1', marginTop: 12 },
+  skipOptText: { color: '#818cf8', fontSize: 13, fontWeight: '700' },
   snoozeOptions: { flexDirection: 'row', gap: 8, marginTop: 12, justifyContent: 'center' },
   snoozeOpt: { flex: 1, backgroundColor: '#1e293b', borderRadius: 10, padding: 12, alignItems: 'center', borderWidth: 1, borderColor: '#334155' },
   snoozeOptText: { color: '#94a3b8', fontSize: 13, fontWeight: '700' },

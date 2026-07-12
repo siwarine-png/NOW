@@ -30,4 +30,32 @@ async function advanceSiblingChain(parentId) {
   if (allDone) await sb.from('commitments').update({ status: 'completed' }).eq('id', parentId);
 }
 
-module.exports = { advanceSiblingChain };
+// Now's "Skip for now -- move to next step" snooze option (as opposed to
+// "remind me later," the plain time-delay snooze) -- for a step that isn't
+// actually blocking what comes after it. Deliberately NOT the same as
+// calling advanceSiblingChain after pausing this step: that function's own
+// "earliest paused sibling" search would just immediately re-select THIS
+// step, since pausing it makes it the earliest paused one again. Only
+// siblings AFTER this one (by created_at) are candidates. And unlike
+// Done/Remove, skipping one step never completes the parent -- deferring a
+// step isn't finishing the project, so if nothing's queued after it, this
+// just pauses the one step and leaves everything else as-is (the project
+// may briefly show no active step until this one is manually revisited).
+async function skipToNextStep(commitmentId, parentId) {
+  await sb.from('commitments').update({ status: 'paused' }).eq('id', commitmentId);
+
+  const { data: siblings } = await sb
+    .from('commitments')
+    .select('id, status')
+    .eq('parent_commitment_id', parentId)
+    .order('created_at', { ascending: true });
+  if (!siblings?.length) return;
+
+  const currentIndex = siblings.findIndex(s => s.id === commitmentId);
+  const nextQueued = siblings.slice(currentIndex + 1).find(s => s.status === 'paused');
+  if (nextQueued) {
+    await sb.from('commitments').update({ status: 'active' }).eq('id', nextQueued.id);
+  }
+}
+
+module.exports = { advanceSiblingChain, skipToNextStep };

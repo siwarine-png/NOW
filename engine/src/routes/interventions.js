@@ -78,6 +78,7 @@ router.get('/now', async (req, res) => {
 
     return res.json({
       commitment_id: c.id,
+      parent_commitment_id: c.parent_commitment_id,
       action: result.payload.action,
       framing: result.payload.framing,
       message: result.payload.message,
@@ -130,6 +131,7 @@ router.get('/now', async (req, res) => {
 
       return res.json({
         commitment_id: c.id,
+        parent_commitment_id: c.parent_commitment_id,
         action: result.payload.action,
         framing: result.payload.framing,
         message: result.payload.message,
@@ -310,6 +312,7 @@ router.get('/now', async (req, res) => {
 
   res.json({
     commitment_id: matched.commitment.id,
+    parent_commitment_id: matched.commitment.parent_commitment_id,
     action: matched.payload.action,
     framing: matched.payload.framing,
     message: matched.payload.message,
