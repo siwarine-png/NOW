@@ -287,8 +287,13 @@ export default function AddPainPointScreen({ user, onCreated, secondaryActionLab
         cadence: 'once', identity_axis: identityAxis, priority_tier: 'normal',
       });
       for (let i = 0; i < steps.length; i++) {
+        // A project's own steps are typed one physical action at a time
+        // (STEP_PROJECT_STEP's "what's the first/next step?") -- that IS
+        // the next_action, not something to ask again later. Leaving this
+        // null was making R4_ambiguous_action re-ask "define your first
+        // physical step" for a step the user just explicitly wrote out.
         await createCommitment({
-          user_id: user.id, parent_commitment_id: parent.id, title: steps[i], next_action: null,
+          user_id: user.id, parent_commitment_id: parent.id, title: steps[i], next_action: steps[i],
           cadence: 'once', identity_axis: identityAxis, priority_tier: 'normal',
           status: i === 0 ? 'active' : 'paused',
         });
@@ -322,12 +327,20 @@ export default function AddPainPointScreen({ user, onCreated, secondaryActionLab
   // chooseAxis, where identityAxis state hasn't committed yet within the
   // same tap -- every other caller relies on identityAxis already being
   // settled by the time it runs.
+  //
+  // next_action defaults to the title itself -- for a quick task/habit,
+  // whatever was typed on the title screen already IS the one concrete
+  // thing to do (that's the whole question that screen asks). Leaving this
+  // null made R4_ambiguous_action ask "what's the first physical step?"
+  // again for something the user had just already stated, every single
+  // time, for every task/habit created this way. Still overridable via
+  // payload if a caller ever needs something more specific than the title.
   async function createAndReset(payload, axisOverride) {
     if (!user?.id) return;
     setLoading(true);
     try {
       await createCommitment({
-        user_id: user.id, title: customTitle.trim(), next_action: null,
+        user_id: user.id, title: customTitle.trim(), next_action: customTitle.trim(),
         cadence, priority_tier: 'normal', identity_axis: axisOverride ?? identityAxis,
         ...payload,
       });
