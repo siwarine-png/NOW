@@ -220,7 +220,14 @@ export default function TodayScreen({ user, onOpenNow, onSettings }) {
 
         <MorningRoutineCard items={morningItems} onDone={handleDone} acting={acting} />
 
-        {doNow && doNow.state !== 'clear' && (
+        {doNow && doNow.state === 'busy' && (
+          <TouchableOpacity style={s.busyCard} onPress={onOpenNow}>
+            <Text style={s.busyLabel}>🔕 YOU'RE BUSY</Text>
+            <Text style={s.busyTitle}>Marked unavailable until {fmtTime(new Date(doNow.busy_until).toTimeString().slice(0, 5))}</Text>
+          </TouchableOpacity>
+        )}
+
+        {doNow && doNow.state !== 'clear' && doNow.state !== 'busy' && (
           <TouchableOpacity style={s.doNowCard} onPress={onOpenNow}>
             <Text style={s.doNowLabel}>🎯 DO THIS NOW</Text>
             <Text style={s.doNowTitle}>{doNow.action || doNow.message}</Text>
@@ -265,6 +272,9 @@ const s = StyleSheet.create({
   doNowCard: { backgroundColor: '#1e293b', borderRadius: 16, borderWidth: 1, borderColor: '#6366f1', padding: 18, marginTop: 20, marginBottom: 8 },
   doNowLabel: { fontSize: 11, fontWeight: '800', color: '#818cf8', letterSpacing: 0.8, marginBottom: 8 },
   doNowTitle: { fontSize: 19, fontWeight: '800', color: '#fff', lineHeight: 25 },
+  busyCard: { backgroundColor: '#1e293b', borderRadius: 16, borderWidth: 1, borderColor: '#334155', padding: 18, marginTop: 20, marginBottom: 8 },
+  busyLabel: { fontSize: 11, fontWeight: '800', color: '#64748b', letterSpacing: 0.8, marginBottom: 8 },
+  busyTitle: { fontSize: 16, fontWeight: '700', color: '#94a3b8', lineHeight: 22 },
   section: { marginTop: 22 },
   sectionLabel: { fontSize: 11, fontWeight: '800', color: '#475569', letterSpacing: 0.8, textTransform: 'uppercase', marginBottom: 10 },
   row: { flexDirection: 'row', alignItems: 'center', paddingVertical: 10, borderBottomWidth: 1, borderBottomColor: '#1e293b' },

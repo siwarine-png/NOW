@@ -20,12 +20,12 @@ async function runSchedulerTick() {
   if (!apps?.length) return;
 
   for (const app of apps) {
-    const { data: users } = await sb.from('users').select('id,timezone,quiet_start,quiet_end').eq('app_id', app.id);
+    const { data: users } = await sb.from('users').select('id,timezone,quiet_start,quiet_end,busy_until').eq('app_id', app.id);
     if (!users?.length) continue;
 
     for (const user of users) {
       const nowMin = nowMinutesInTz(user.timezone);
-      if (isQuietHours(user, nowMin)) continue;
+      if (isQuietHours(user, nowMin) || isBusy(user)) continue;
 
       const { data: commitments } = await sb
         .from('commitments').select('*').eq('user_id', user.id).eq('status', 'active');
@@ -76,6 +76,14 @@ function isQuietHours(user, nowMin) {
   return qs < qe ? (nowMin >= qs && nowMin < qe) : (nowMin >= qs || nowMin < qe);
 }
 
+// "I'm busy" (NowScreen) -- an ad-hoc, on-demand version of quiet hours for
+// "starting now, don't nudge me for a while," same check GET /interventions/now
+// short-circuits on. Every proactive push path needs this, not just the
+// screen someone might not be looking at right when they tap the button.
+function isBusy(user) {
+  return !!(user.busy_until && new Date(user.busy_until) > new Date());
+}
+
 // Commitment-mode fallback for the daily push, so users with no domain data
 // still get a real, concrete thing in the notification body instead of the
 // generic placeholder -- picks the single highest-risk active, in-window,
@@ -113,12 +121,13 @@ async function pickCommitmentPushBody(userId, nowMin, now) {
 async function runCommitmentPushTick() {
   const { data: users } = await sb
     .from('users')
-    .select('id, push_token, web_push_subscription, timezone')
+    .select('id, push_token, web_push_subscription, timezone, busy_until')
     .or('push_token.not.is.null,web_push_subscription.not.is.null');
   if (!users?.length) return;
 
   const now = new Date();
   for (const user of users) {
+    if (isBusy(user)) continue;
     const nowMin = nowMinutesInTz(user.timezone);
     const { data: commitments } = await sb
       .from('commitments').select('*')
@@ -151,7 +160,7 @@ async function runCommitmentPushTick() {
 async function runPushReminderTick() {
   const { data: users } = await sb
     .from('users')
-    .select('id, push_token, web_push_subscription, checkin_time, timezone, last_push_sent_at')
+    .select('id, push_token, web_push_subscription, checkin_time, timezone, last_push_sent_at, busy_until')
     .or('push_token.not.is.null,web_push_subscription.not.is.null');
   if (!users?.length) return;
 
@@ -165,7 +174,7 @@ async function runPushReminderTick() {
 
   const now = new Date();
   for (const user of users) {
-    if (inActiveTest.has(user.id)) continue;
+    if (inActiveTest.has(user.id) || isBusy(user)) continue;
     const nowMin = nowMinutesInTz(user.timezone);
     const [ch, cm] = (user.checkin_time || '18:00').split(':').map(Number);
     const checkinMin = ch * 60 + cm;

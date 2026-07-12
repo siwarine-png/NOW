@@ -16,11 +16,12 @@ import {
   View, Text, TouchableOpacity, StyleSheet, ActivityIndicator,
   AppState, ScrollView,
 } from 'react-native';
-import { getInterventionNow, postCheckin, postSnooze, postEquivalentCheckin } from '../api/engine';
+import { getInterventionNow, postCheckin, postSnooze, postEquivalentCheckin, updateUser } from '../api/engine';
 import { enqueue, flushQueue } from '../store/queue';
 import { cacheIntervention, getCachedIntervention, clearIntervention } from '../store/session';
 import TimerCountdown from '../components/TimerCountdown';
 import FocusSession from '../components/FocusSession';
+import ImBusyButton from '../components/ImBusyButton';
 
 const SNOOZE_OPTIONS = [
   { label: '10 min', minutes: 10 },
@@ -117,6 +118,16 @@ export default function NowScreen({ user, onSettings, onBack }) {
   const activeWhyThis = altSelected ? null : intervention?.why_this;
   const activeTimerSeconds = altSelected ? altSelected.timer_seconds : intervention?.timer_seconds;
 
+  async function endBusy() {
+    if (!user?.id) return;
+    setActing(true);
+    try {
+      await updateUser(user.id, { busy_until: null });
+    } catch (e) { /* best-effort -- worst case it just stays busy until it expires */ }
+    setActing(false);
+    load(false);
+  }
+
   async function handleDone() {
     if (isDomainMode) return handleDomainAction('done');
     if (!intervention?.commitment_id) return;
@@ -178,6 +189,30 @@ export default function NowScreen({ user, onSettings, onBack }) {
 
   if (loading) return (
     <View style={s.center}><ActivityIndicator size="large" color="#6366f1" /></View>
+  );
+
+  // Busy state — user explicitly marked themselves unavailable (see
+  // ImBusyButton); this always wins over anything else GET /interventions/now
+  // would otherwise suggest.
+  if (intervention?.state === 'busy') return (
+    <View style={s.screen}>
+      {onBack && (
+        <TouchableOpacity style={s.backBtn} onPress={onBack}>
+          <Text style={s.backBtnText}>← Today</Text>
+        </TouchableOpacity>
+      )}
+      <TouchableOpacity style={s.settingsBtn} onPress={onSettings}>
+        <Text style={s.settingsIcon}>⚙</Text>
+      </TouchableOpacity>
+      <View style={s.center}>
+        <Text style={s.clearEmoji}>🔕</Text>
+        <Text style={s.clearTitle}>You're busy.</Text>
+        <Text style={s.clearSub}>Marked unavailable until {formatNextAt(intervention.busy_until)}.</Text>
+        <TouchableOpacity style={[s.freeNowBtn, acting && s.btnDisabled]} disabled={acting} onPress={endBusy}>
+          {acting ? <ActivityIndicator color="#fff" /> : <Text style={s.doneBtnText}>I'm free now</Text>}
+        </TouchableOpacity>
+      </View>
+    </View>
   );
 
   // Clear state — nothing actionable right now
@@ -251,6 +286,8 @@ export default function NowScreen({ user, onSettings, onBack }) {
           equivalentId: activeEquivalentId,
           commitmentId: !isDomainMode ? intervention.commitment_id : null,
         }} />
+
+        <ImBusyButton userId={user?.id} onSet={() => load(false)} />
 
         {/* Friction reduction (commitment mode only) */}
         {intervention.friction_reduction && (
@@ -364,6 +401,7 @@ const s = StyleSheet.create({
   trendText: { fontSize: 13, color: '#c7d2fe', lineHeight: 19 },
   actions: { flexDirection: 'row', gap: 12, marginTop: 8 },
   doneBtn: { flex: 2, backgroundColor: '#6366f1', borderRadius: 14, padding: 18, alignItems: 'center' },
+  freeNowBtn: { backgroundColor: '#6366f1', borderRadius: 14, paddingVertical: 18, paddingHorizontal: 32, alignItems: 'center', marginTop: 28 },
   doneBtnText: { color: '#fff', fontSize: 17, fontWeight: '800' },
   snoozeBtn: { flex: 1, backgroundColor: '#1e293b', borderRadius: 14, padding: 18, alignItems: 'center', borderWidth: 1, borderColor: '#334155' },
   snoozeBtnText: { color: '#94a3b8', fontSize: 14, fontWeight: '700' },

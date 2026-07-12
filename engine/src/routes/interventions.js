@@ -17,7 +17,7 @@ router.get('/now', async (req, res) => {
   // Verify user belongs to this app
   const { data: user } = await sb
     .from('users')
-    .select('id, timezone')
+    .select('id, timezone, busy_until')
     .eq('id', user_id)
     .eq('app_id', req.app_id)
     .single();
@@ -27,6 +27,14 @@ router.get('/now', async (req, res) => {
   // foreground (see NowScreen's load/AppState effects) — piggyback session-open
   // tracking here instead of adding a dedicated endpoint for it.
   log(req.app_id, user_id, 'session.opened', { screen: 'now' });
+
+  // "I'm busy" (NowScreen) -- an on-demand, ad-hoc version of quiet hours for
+  // "starting now, don't nudge me for a while." Checked before anything else
+  // (critical commitments included) since being marked busy is an explicit,
+  // deliberate override of everything, not just the ordinary rotation.
+  if (user.busy_until && new Date(user.busy_until) > new Date()) {
+    return res.json({ state: 'busy', message: "You're marked busy.", busy_until: user.busy_until });
+  }
 
   const energyNum = energy ? Number(energy) : null;
   const nowMin = nowMinutesInTz(user.timezone);
