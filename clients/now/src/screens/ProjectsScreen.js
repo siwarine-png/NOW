@@ -30,7 +30,7 @@ function axisLabel(axis) {
 // wild, overconfident number. Plain project count needs no such runway.
 const CROWDED_THRESHOLD = 2;
 
-function findCrowdedAxes(projectRows) {
+export function findCrowdedAxes(projectRows) {
   const counts = {};
   projectRows.forEach(({ project }) => {
     if (project.status !== 'active' || !project.identity_axis) return;
@@ -39,6 +39,32 @@ function findCrowdedAxes(projectRows) {
   return Object.entries(counts)
     .filter(([, count]) => count > CROWDED_THRESHOLD)
     .map(([axis, count]) => ({ axis, count }));
+}
+
+// Shared with WeekScreen (the weekly identity-balance view needs the same
+// "what's a project vs. a standalone task" split, not just the crowding
+// number) -- a project IS just a commitment other commitments reference via
+// parent_commitment_id, no dedicated table (see engine/decomposition.js).
+export function groupCommitments(all) {
+  const childrenByParent = new Map();
+  all.forEach(c => {
+    if (!c.parent_commitment_id) return;
+    if (!childrenByParent.has(c.parent_commitment_id)) childrenByParent.set(c.parent_commitment_id, []);
+    childrenByParent.get(c.parent_commitment_id).push(c);
+  });
+
+  const projectRows = [];
+  const quickRows = [];
+  all.forEach(c => {
+    if (c.parent_commitment_id) return; // it's a step, not a project of its own
+    const children = childrenByParent.get(c.id) || [];
+    if (children.length) {
+      projectRows.push({ project: c, currentStep: children.find(ch => ch.status === 'active') || null });
+    } else {
+      quickRows.push(c);
+    }
+  });
+  return { projectRows, quickRows };
 }
 
 export default function ProjectsScreen({ user, onAddNew }) {
@@ -57,25 +83,7 @@ export default function ProjectsScreen({ user, onAddNew }) {
         getCommitments(user.id, 'paused'),
       ]);
       const all = [...(active || []), ...(paused || [])];
-
-      const childrenByParent = new Map();
-      all.forEach(c => {
-        if (!c.parent_commitment_id) return;
-        if (!childrenByParent.has(c.parent_commitment_id)) childrenByParent.set(c.parent_commitment_id, []);
-        childrenByParent.get(c.parent_commitment_id).push(c);
-      });
-
-      const projectRows = [];
-      const quickRows = [];
-      all.forEach(c => {
-        if (c.parent_commitment_id) return; // it's a step, not a project of its own
-        const children = childrenByParent.get(c.id) || [];
-        if (children.length) {
-          projectRows.push({ project: c, currentStep: children.find(ch => ch.status === 'active') || null });
-        } else {
-          quickRows.push(c);
-        }
-      });
+      const { projectRows, quickRows } = groupCommitments(all);
       setProjects(projectRows);
       setQuickTasks(quickRows);
     } catch { /* keep whatever was last shown rather than a broken empty screen */ }

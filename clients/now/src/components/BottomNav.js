@@ -3,16 +3,19 @@
  * Order left to right: "Identity" (the Adaptive Allocation Engine's
  * spectrum reflection), "New" (ProjectsScreen -- adding anything: quick
  * tasks, multi-step projects, whatever, plus what's already in flight),
- * "I'm Stuck" (momentary unsticking triage), "Now" (the day's shape --
- * TodayScreen, "95% of usage" per NowScreen's own header comment). Now
- * gets a filled pill instead of plain icon+label, always on regardless of
- * which tab is actually active -- it's the one this whole app is built
- * around, and blending into 3 identically-styled tabs undersold that.
+ * "Week" (WeekScreen -- the visual of the whole week: identity balance
+ * plus everything due_date-scheduled the next 7 days, invisible anywhere
+ * else once it's not today), "I'm Stuck" (momentary unsticking triage),
+ * "Now" (the day's shape -- TodayScreen, "95% of usage" per NowScreen's
+ * own header comment). Now gets a filled pill instead of plain
+ * icon+label, always on regardless of which tab is actually active --
+ * it's the one this whole app is built around, and blending into 4
+ * identically-styled tabs undersold that.
  */
 import React from 'react';
 import { View, Text, TouchableOpacity, StyleSheet } from 'react-native';
 
-export default function BottomNav({ active, onStuck, onNow, onProjects, onIdentity }) {
+export default function BottomNav({ active, onStuck, onNow, onProjects, onIdentity, onWeek }) {
   return (
     <View style={s.bar}>
       <TouchableOpacity style={s.tab} onPress={onIdentity}>
@@ -22,6 +25,10 @@ export default function BottomNav({ active, onStuck, onNow, onProjects, onIdenti
       <TouchableOpacity style={s.tab} onPress={onProjects}>
         <Text style={s.icon}>➕</Text>
         <Text style={[s.label, active === 'projects' && s.labelActive]}>New</Text>
+      </TouchableOpacity>
+      <TouchableOpacity style={s.tab} onPress={onWeek}>
+        <Text style={s.icon}>📅</Text>
+        <Text style={[s.label, active === 'week' && s.labelActive]}>Week</Text>
       </TouchableOpacity>
       <TouchableOpacity style={s.tab} onPress={onStuck}>
         <Text style={s.icon}>🆘</Text>

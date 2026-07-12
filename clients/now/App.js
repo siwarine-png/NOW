@@ -21,6 +21,7 @@ import AddPainPointScreen from './src/screens/AddPainPointScreen';
 import StuckScreen from './src/screens/StuckScreen';
 import IdentityScreen from './src/screens/IdentityScreen';
 import ProjectsScreen from './src/screens/ProjectsScreen';
+import WeekScreen from './src/screens/WeekScreen';
 import BottomNav from './src/components/BottomNav';
 
 Notifications.setNotificationHandler({
@@ -103,6 +104,8 @@ function App() {
     content = <AddPainPointScreen user={user} onCreated={() => setScreen(backTo)} />;
   } else if (screen === 'projects') {
     content = <ProjectsScreen user={user} onAddNew={() => setScreen('projects-new')} />;
+  } else if (screen === 'week') {
+    content = <WeekScreen user={user} />;
   } else if (screen === 'identity') {
     content = <IdentityScreen user={user} onBack={() => setScreen('today')} />;
   } else {
@@ -118,6 +121,7 @@ function App() {
           active={
             STUCK_TAB_SCREENS.includes(screen) ? 'stuck'
             : PROJECTS_TAB_SCREENS.includes(screen) ? 'projects'
+            : screen === 'week' ? 'week'
             : screen === 'identity' ? 'identity'
             : NOW_TAB_SCREENS.includes(screen) ? 'now'
             : null
@@ -126,6 +130,7 @@ function App() {
           onNow={() => setScreen('today')}
           onProjects={() => setScreen('projects')}
           onIdentity={() => setScreen('identity')}
+          onWeek={() => setScreen('week')}
         />
       </View>
     </>

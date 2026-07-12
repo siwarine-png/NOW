@@ -1,0 +1,193 @@
+/**
+ * Week — the "visual of the week" the other tabs don't give you. Today only
+ * ever shows today, and it deliberately hides anything due_date-scheduled
+ * for a later day (see migration 025 / commitments.js's isDueByToday) --
+ * without this screen, a task due Thursday was invisible everywhere from
+ * the moment it was created until Thursday itself. Two halves:
+ *
+ *  - Identity balance: same per-axis desired-vs-current data the Identity
+ *    tab shows, but read through two flags instead of raw numbers --
+ *    "too many" (findCrowdedAxes, ProjectsScreen's own crowding signal:
+ *    >2 simultaneously active projects on one axis) and "room to add"
+ *    (current meaningfully below desired, i.e. there's real headroom to
+ *    put something there). The two questions this whole screen exists to
+ *    answer: what should I optimize/trim, and what could I actually add.
+ *  - Scheduled this week: today through six days out, each day's due_date-
+ *    tagged commitments. Not a full calendar -- just enough to see the
+ *    week's shape at a glance, same "big picture, not another single-focus
+ *    screen" gap Today's own full-day view filled for a single day.
+ */
+import React, { useState, useEffect, useCallback } from 'react';
+import { View, Text, StyleSheet, ActivityIndicator, ScrollView } from 'react-native';
+import { getIdentitySpectrum, getCommitments } from '../api/engine';
+import { groupCommitments, findCrowdedAxes } from './ProjectsScreen';
+
+const AXES = [
+  { key: 'foundation', label: 'Foundation' },
+  { key: 'relationships', label: 'Relationships' },
+  { key: 'achievement', label: 'Achievement' },
+  { key: 'finance', label: 'Finance' },
+  { key: 'contribution', label: 'Contribution' },
+  { key: 'recreation', label: 'Recreation' },
+];
+
+// Meaningfully below your own stated goal, not just imprecision noise --
+// smaller than this and the axis reads as "on track" instead of "room to
+// add," same spirit as IdentityScreen's own onTrack (gap < 1) just a
+// slightly wider band since this screen is a coarser, at-a-glance read.
+const ROOM_TO_ADD_THRESHOLD = 2;
+
+function dateToKey(d) {
+  return `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, '0')}-${String(d.getDate()).padStart(2, '0')}`;
+}
+
+function addDaysDateKey(days) {
+  const d = new Date();
+  d.setDate(d.getDate() + days);
+  return dateToKey(d);
+}
+
+function formatDayLabel(dateKey, offset) {
+  if (offset === 0) return 'Today';
+  if (offset === 1) return 'Tomorrow';
+  const [y, m, d] = dateKey.split('-').map(Number);
+  return new Date(y, m - 1, d).toLocaleDateString('en-US', { weekday: 'long', month: 'short', day: 'numeric' });
+}
+
+function formatDisplayTime(hhmm) {
+  if (!hhmm) return null;
+  const [h, m] = hhmm.split(':').map(Number);
+  const period = h >= 12 ? 'PM' : 'AM';
+  const h12 = h % 12 === 0 ? 12 : h % 12;
+  return `${h12}:${String(m).padStart(2, '0')} ${period}`;
+}
+
+export default function WeekScreen({ user }) {
+  const [loading, setLoading] = useState(true);
+  const [axes, setAxes] = useState([]);
+  const [crowded, setCrowded] = useState([]);
+  const [days, setDays] = useState([]);
+
+  const load = useCallback(async () => {
+    if (!user?.id) return;
+    setLoading(true);
+    try {
+      const [spectrum, active, paused] = await Promise.all([
+        getIdentitySpectrum(user.id).catch(() => null),
+        getCommitments(user.id, 'active'),
+        getCommitments(user.id, 'paused'),
+      ]);
+
+      const all = [...(active || []), ...(paused || [])];
+      const { projectRows } = groupCommitments(all);
+      setCrowded(findCrowdedAxes(projectRows));
+
+      if (spectrum?.axes) {
+        setAxes(AXES.map(a => ({ ...a, ...spectrum.axes[a.key] })));
+      }
+
+      const weekKeys = Array.from({ length: 7 }, (_, i) => addDaysDateKey(i));
+      const byDate = {};
+      weekKeys.forEach(k => { byDate[k] = []; });
+      all.forEach(c => { if (c.due_date && byDate[c.due_date]) byDate[c.due_date].push(c); });
+      setDays(weekKeys.map((k, i) => ({ key: k, label: formatDayLabel(k, i), items: byDate[k] })));
+    } catch { /* keep whatever was last shown rather than a broken empty screen */ }
+    finally { setLoading(false); }
+  }, [user]);
+
+  useEffect(() => { load(); }, [load]);
+
+  if (loading) return <View style={s.center}><ActivityIndicator size="large" color="#6366f1" /></View>;
+
+  return (
+    <View style={s.screen}>
+      <ScrollView contentContainerStyle={s.scroll}>
+        <Text style={s.title}>Week</Text>
+        <Text style={s.subtitle}>Your 168 hours at a glance</Text>
+
+        <Text style={s.sectionLabel}>IDENTITY BALANCE</Text>
+        {axes.length === 0 ? (
+          <Text style={s.emptyText}>Still collecting data — check the Identity tab as check-ins come in.</Text>
+        ) : (
+          <View style={s.section}>
+            {axes.map(a => {
+              const isCrowded = crowded.some(c => c.axis === a.key);
+              const hasData = a.sample_count > 0;
+              const gap = hasData ? Math.max(0, (a.desired_hours_per_week || 0) - (a.current_hours_per_week || 0)) : 0;
+              const roomToAdd = hasData && !isCrowded && gap >= ROOM_TO_ADD_THRESHOLD;
+              const pct = hasData && a.desired_hours_per_week > 0
+                ? Math.min(100, Math.round((a.current_hours_per_week / a.desired_hours_per_week) * 100))
+                : 0;
+
+              return (
+                <View key={a.key} style={s.axisCard}>
+                  <View style={s.axisHeader}>
+                    <Text style={s.axisLabel}>{a.label}</Text>
+                    {isCrowded && <Text style={s.crowdedTag}>too many — consider trimming</Text>}
+                    {roomToAdd && <Text style={s.roomTag}>room to add</Text>}
+                  </View>
+                  {hasData ? (
+                    <>
+                      <View style={s.track}>
+                        <View style={[s.fill, { width: `${pct}%` }, isCrowded && s.fillCrowded]} />
+                      </View>
+                      <Text style={s.axisHours}>{a.current_hours_per_week}h / {a.desired_hours_per_week}h this week</Text>
+                    </>
+                  ) : (
+                    <Text style={s.axisHoursDim}>collecting data…</Text>
+                  )}
+                </View>
+              );
+            })}
+          </View>
+        )}
+
+        <Text style={s.sectionLabel}>SCHEDULED THIS WEEK</Text>
+        <View style={s.section}>
+          {days.map(d => (
+            <View key={d.key} style={s.dayCard}>
+              <Text style={s.dayLabel}>{d.label}</Text>
+              {d.items.length === 0 ? (
+                <Text style={s.dayEmpty}>Nothing scheduled</Text>
+              ) : d.items.map(item => (
+                <View key={item.id} style={s.dayItem}>
+                  <Text style={s.dayItemTitle}>{item.title}</Text>
+                  {formatDisplayTime(item.window_start) && (
+                    <Text style={s.dayItemTime}>{formatDisplayTime(item.window_start)}</Text>
+                  )}
+                </View>
+              ))}
+            </View>
+          ))}
+        </View>
+      </ScrollView>
+    </View>
+  );
+}
+
+const s = StyleSheet.create({
+  screen: { flex: 1, backgroundColor: '#0f172a' },
+  center: { flex: 1, justifyContent: 'center', alignItems: 'center', backgroundColor: '#0f172a' },
+  scroll: { padding: 20, paddingTop: 56, paddingBottom: 24 },
+  title: { fontSize: 24, fontWeight: '900', color: '#f1f5f9' },
+  subtitle: { fontSize: 13, color: '#64748b', marginTop: 2, marginBottom: 20 },
+  emptyText: { fontSize: 14, color: '#64748b', marginBottom: 20, lineHeight: 20 },
+  sectionLabel: { fontSize: 11, fontWeight: '800', color: '#475569', letterSpacing: 0.8, marginBottom: 10, marginTop: 4 },
+  section: { marginBottom: 20 },
+  axisCard: { backgroundColor: '#1e293b', borderRadius: 14, padding: 14, marginBottom: 10, borderWidth: 1, borderColor: '#273449' },
+  axisHeader: { flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center', marginBottom: 8, flexWrap: 'wrap' },
+  axisLabel: { fontSize: 14, fontWeight: '800', color: '#f1f5f9' },
+  crowdedTag: { fontSize: 11, fontWeight: '800', color: '#f59e0b' },
+  roomTag: { fontSize: 11, fontWeight: '800', color: '#34d399' },
+  track: { height: 8, borderRadius: 4, backgroundColor: '#0f172a', overflow: 'hidden' },
+  fill: { height: '100%', borderRadius: 4, backgroundColor: '#6366f1' },
+  fillCrowded: { backgroundColor: '#f59e0b' },
+  axisHours: { fontSize: 12, color: '#94a3b8', marginTop: 6 },
+  axisHoursDim: { fontSize: 12, color: '#475569', fontStyle: 'italic' },
+  dayCard: { backgroundColor: '#1e293b', borderRadius: 14, padding: 14, marginBottom: 10, borderWidth: 1, borderColor: '#273449' },
+  dayLabel: { fontSize: 13, fontWeight: '800', color: '#818cf8', marginBottom: 8 },
+  dayEmpty: { fontSize: 13, color: '#475569', fontStyle: 'italic' },
+  dayItem: { flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center', paddingVertical: 6, borderTopWidth: 1, borderTopColor: '#273449' },
+  dayItemTitle: { fontSize: 14, color: '#f1f5f9', fontWeight: '600', flex: 1, marginRight: 8 },
+  dayItemTime: { fontSize: 12, color: '#64748b', fontWeight: '700' },
+});
