@@ -4,7 +4,7 @@ const { log } = require('../engine/events');
 const { loadStats } = require('../engine/stats');
 const { isWithinWindow, nowMinutesInTz } = require('../engine/rules');
 const { advanceSiblingChain } = require('../engine/decomposition');
-const { getStalledProjects } = require('../engine/projects');
+const { getStalledProjects, reviewStaleProject } = require('../engine/projects');
 
 const router = Router();
 
@@ -45,14 +45,35 @@ router.post('/', async (req, res) => {
   res.status(201).json(data);
 });
 
-// GET /commitments/stalled-projects?user_id= — soft nudge, not a hard gate:
-// the client shows this before letting someone add something new, but
-// always lets them proceed anyway ("Continue anyway"). See engine/projects.js.
+// GET /commitments/stalled-projects?user_id=&needs_review=true — soft nudge,
+// not a hard gate. Without needs_review, every currently-stalled project is
+// returned every time (AddPainPointScreen's "before adding something new"
+// nudge — informational, fine to repeat). needs_review=true additionally
+// suppresses anything already reviewed in the last 7 days (Today's periodic
+// "still going, or pause it?" prompt — re-asking daily would make "still
+// going" meaningless). See engine/projects.js.
 router.get('/stalled-projects', async (req, res) => {
-  const { user_id } = req.query;
+  const { user_id, needs_review } = req.query;
   if (!user_id) return res.status(400).json({ error: 'user_id required' });
-  const stalled = await getStalledProjects(user_id);
+  const stalled = await getStalledProjects(user_id, { needsReviewOnly: needs_review === 'true' });
   res.json({ stalled });
+});
+
+// POST /commitments/:id/stale-review — the user's answer to that prompt.
+// action: 'continue' just resets the re-ask clock; 'pause' also pauses the
+// project and records why (reason), a real audit trail instead of a
+// project just silently going quiet with no record of the decision.
+router.post('/:id/stale-review', async (req, res) => {
+  const { action, reason } = req.body;
+  if (!['continue', 'pause'].includes(action)) return res.status(400).json({ error: "action must be 'continue' or 'pause'" });
+
+  const { data: current } = await sb
+    .from('commitments').select('id, user_id, users!inner(app_id)').eq('id', req.params.id).single();
+  if (!current || current.users.app_id !== req.app_id) return res.status(404).json({ error: 'Not found' });
+
+  const data = await reviewStaleProject(req.params.id, action, reason);
+  log(req.app_id, current.user_id, 'project.stale_reviewed', { commitment_id: req.params.id, action, reason: reason || null });
+  res.json(data);
 });
 
 // GET /commitments/suggestions — most commonly chosen titles across this app's

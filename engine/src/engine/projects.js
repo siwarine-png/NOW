@@ -13,10 +13,18 @@ const sb = require('../db/client');
 
 const STALE_DAYS = 7;
 
-async function getStalledProjects(userId) {
+// needsReviewOnly: the creation-time soft nudge (routes/commitments.js's
+// GET /stalled-projects) wants every currently-stalled project shown every
+// time -- low stakes, purely informational context before adding something
+// new. The periodic proactive check (scheduler.js's runStaleProjectCheckTick)
+// wants the opposite: never re-ask about the same project more than once
+// every STALE_DAYS, or "still going" would mean nothing since it'd just be
+// asked again tomorrow. Same underlying stalled-detection, two different
+// re-ask policies layered on top depending on which surface is asking.
+async function getStalledProjects(userId, { needsReviewOnly = false } = {}) {
   const { data: commitments } = await sb
     .from('commitments')
-    .select('id, title, parent_commitment_id, status, created_at')
+    .select('id, title, parent_commitment_id, status, created_at, last_stale_check_at')
     .eq('user_id', userId);
   if (!commitments?.length) return [];
 
@@ -35,6 +43,11 @@ async function getStalledProjects(userId) {
   const stalled = [];
 
   for (const project of activeProjects) {
+    if (needsReviewOnly && project.last_stale_check_at) {
+      const daysSinceReview = Math.floor((now - new Date(project.last_stale_check_at).getTime()) / 86_400_000);
+      if (daysSinceReview < STALE_DAYS) continue;
+    }
+
     const memberIds = [project.id, ...(childrenByParent.get(project.id) || [])];
     const { data: checkins } = await sb
       .from('checkins')
@@ -57,4 +70,22 @@ async function getStalledProjects(userId) {
   return stalled;
 }
 
-module.exports = { getStalledProjects, STALE_DAYS };
+// User's answer to "still going, or pause it (and why)?" -- 'continue' just
+// records that this was reviewed (resets the STALE_DAYS re-ask clock
+// without changing anything else); 'pause' also sets status to 'paused'
+// (dropping it out of every active-commitment query, same as any other
+// paused commitment) and keeps the stated reason as a real audit trail
+// instead of the project just silently going quiet with no record of why.
+async function reviewStaleProject(commitmentId, action, reason) {
+  const updates = { last_stale_check_at: new Date().toISOString() };
+  if (action === 'pause') {
+    updates.status = 'paused';
+    updates.paused_at = updates.last_stale_check_at;
+    updates.paused_reason = reason || null;
+  }
+  const { data, error } = await sb.from('commitments').update(updates).eq('id', commitmentId).select().single();
+  if (error) throw new Error(error.message);
+  return data;
+}
+
+module.exports = { getStalledProjects, reviewStaleProject, STALE_DAYS };

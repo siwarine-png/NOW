@@ -12,9 +12,10 @@
  */
 import React, { useState, useEffect, useCallback } from 'react';
 import { View, Text, TouchableOpacity, StyleSheet, ActivityIndicator, ScrollView, AppState } from 'react-native';
-import { getInterventionNow, getTodaySchedule, postCheckin, getIdentityCheckinStatus, updateCommitment } from '../api/engine';
+import { getInterventionNow, getTodaySchedule, postCheckin, getIdentityCheckinStatus, updateCommitment, getStalledProjects } from '../api/engine';
 import { enqueue } from '../store/queue';
 import IdentityCheckinPrompt, { shouldShowIdentityCheckin } from '../components/IdentityCheckinPrompt';
+import StaleProjectPrompt from '../components/StaleProjectPrompt';
 
 function greeting() {
   const h = new Date().getHours();
@@ -123,6 +124,7 @@ export default function TodayScreen({ user, onOpenNow, onSettings }) {
   const [loading, setLoading] = useState(true);
   const [acting, setActing] = useState(false);
   const [checkinDue, setCheckinDue] = useState(false);
+  const [staleProject, setStaleProject] = useState(null);
 
   const load = useCallback(async () => {
     if (!user) return;
@@ -140,6 +142,14 @@ export default function TodayScreen({ user, onOpenNow, onSettings }) {
       const [status, locallyOk] = await Promise.all([getIdentityCheckinStatus(user.id), shouldShowIdentityCheckin()]);
       setCheckinDue(!!status?.due && locallyOk);
     } catch { /* stay silent, this is optional data collection */ }
+
+    // The "periodic check if a project has no progress" ask -- server-side
+    // 7-day re-ask suppression (needsReviewOnly) already keeps this from
+    // repeating every time Today loads once it's been answered once.
+    try {
+      const { stalled } = await getStalledProjects(user.id, true);
+      setStaleProject(stalled?.[0] || null);
+    } catch { /* best-effort -- worst case it just asks again next open */ }
   }, [user]);
 
   useEffect(() => { load(); }, [load]);
@@ -232,6 +242,10 @@ export default function TodayScreen({ user, onOpenNow, onSettings }) {
         user={user}
         onDone={() => setCheckinDue(false)}
       />
+
+      {!checkinDue && staleProject && (
+        <StaleProjectPrompt project={staleProject} onResolved={() => setStaleProject(null)} />
+      )}
     </View>
   );
 }

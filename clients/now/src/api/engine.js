@@ -89,9 +89,19 @@ export async function createCommitment(payload) {
 // Soft nudge shown before adding something new (AddPainPointScreen) -- never
 // blocks, just surfaces projects that have gone quiet for 7+ days so a new
 // idea doesn't silently join an already-growing pile of unfinished ones.
-export async function getStalledProjects(user_id) {
-  const params = new URLSearchParams({ user_id });
+// needsReviewOnly=true (Today's periodic prompt) additionally suppresses
+// anything already reviewed in the last 7 days, so "still going" actually
+// means something instead of being asked again the next time the app opens.
+export async function getStalledProjects(user_id, needsReviewOnly = false) {
+  const params = new URLSearchParams({ user_id, ...(needsReviewOnly ? { needs_review: 'true' } : {}) });
   return request('GET', `/commitments/stalled-projects?${params}`);
+}
+
+// The user's answer to "still going, or pause it?" -- action is 'continue'
+// (just resets the re-ask clock) or 'pause' (also pauses the project and
+// records reason as a real audit trail, not just silence).
+export async function reviewStaleProject(commitment_id, action, reason) {
+  return request('POST', `/commitments/${commitment_id}/stale-review`, { action, reason });
 }
 
 // Used by Today's per-row "Remove" action -- a duplicate or no-longer-wanted
