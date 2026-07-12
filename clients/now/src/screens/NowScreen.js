@@ -26,6 +26,10 @@ const SNOOZE_OPTIONS = [
   { label: '10 min', minutes: 10 },
   { label: '1 hour', minutes: 60 },
   { label: 'Today', minutes: null }, // skip for today
+  // For "I can't act on this until an external thing resolves" (e.g.
+  // waiting on Payoneer approval) -- without this, being blocked on
+  // something outside your control meant re-snoozing every single day.
+  { label: 'A few days', minutes: 3 * 24 * 60 },
 ];
 
 function fmtAction(text) { return text.charAt(0).toUpperCase() + text.slice(1); }
