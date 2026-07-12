@@ -55,7 +55,7 @@
  * case there, not through this screen.
  */
 import React, { useState, useEffect, useRef } from 'react';
-import { View, Text, TextInput, TouchableOpacity, StyleSheet, ActivityIndicator } from 'react-native';
+import { View, Text, TextInput, TouchableOpacity, StyleSheet, ActivityIndicator, Platform } from 'react-native';
 import { createCommitment, getStalledProjects } from '../api/engine';
 import { showAlert } from '../utils/alert';
 
@@ -456,6 +456,27 @@ export default function AddPainPointScreen({ user, onCreated, secondaryActionLab
             <Text style={s.linkBtnText}>Pick a specific date</Text>
           </TouchableOpacity>
         </>
+      ) : Platform.OS === 'web' ? (
+        // A real calendar picker (the browser's own) instead of typed
+        // "7/20" text -- no native equivalent installed for iOS/Android
+        // yet (would need its own library and a native rebuild, not just
+        // a web deploy), so those keep the typed fallback below.
+        <>
+          <input
+            type="date"
+            value={customDateInput}
+            min={todayDateKey()}
+            onChange={e => setCustomDateInput(e.target.value)}
+            style={webDateInputStyle}
+          />
+          <TouchableOpacity
+            style={[s.btn, !customDateInput && s.btnDisabled]}
+            disabled={!customDateInput}
+            onPress={() => chooseDate(customDateInput)}
+          >
+            <Text style={s.btnText}>Set and continue →</Text>
+          </TouchableOpacity>
+        </>
       ) : (
         <>
           <TextInput
@@ -626,6 +647,15 @@ export default function AddPainPointScreen({ user, onCreated, secondaryActionLab
     </View>
   );
 }
+
+// A raw HTML element (react-native-web renders it straight through), so it
+// takes real CSS inline styles, not a StyleSheet entry -- roughly matching
+// s.input's look, though the browser still owns the calendar icon/popup
+// itself and won't take every property (e.g. no real text-align control).
+const webDateInputStyle = {
+  backgroundColor: '#1e293b', borderRadius: 10, padding: 14, fontSize: 16, color: '#f1f5f9',
+  marginBottom: 16, border: '1px solid #334155', width: 240, colorScheme: 'dark',
+};
 
 const s = StyleSheet.create({
   center: { flex: 1, backgroundColor: '#0f172a', justifyContent: 'center', alignItems: 'center', padding: 28 },
