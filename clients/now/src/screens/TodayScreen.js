@@ -45,6 +45,38 @@ function axisLabel(axis) {
   return axis.charAt(0).toUpperCase() + axis.slice(1);
 }
 
+// snoozed_until is a full ISO timestamp (unlike window_start's plain HH:MM),
+// since a snooze can push something into tomorrow -- "Today" only if it
+// actually resolves today, otherwise the date needs to be visible too or
+// "until 9:00 AM" would misleadingly read as a few minutes away instead of
+// tomorrow morning.
+function fmtSnoozedUntil(iso) {
+  const d = new Date(iso);
+  const now = new Date();
+  const sameDay = d.toDateString() === now.toDateString();
+  const time = d.toLocaleTimeString([], { hour: 'numeric', minute: '2-digit' });
+  if (sameDay) return `until ${time}`;
+  return `until ${d.toLocaleDateString([], { month: 'short', day: 'numeric' })}, ${time}`;
+}
+
+function SnoozedRow({ item, onUnsnooze, acting }) {
+  return (
+    <View style={s.row}>
+      <View style={s.rowBar} />
+      <View style={s.rowBody}>
+        <Text style={s.rowTitle}>{item.title}</Text>
+        <Text style={s.rowTime}>
+          {fmtSnoozedUntil(item.snoozed_until)}
+          {item.identity_axis ? ` · ${axisLabel(item.identity_axis)}` : ''}
+        </Text>
+      </View>
+      <TouchableOpacity style={s.doneBtn} disabled={acting} onPress={() => onUnsnooze(item.commitment_id)}>
+        <Text style={s.doneBtnText}>Wake up now</Text>
+      </TouchableOpacity>
+    </View>
+  );
+}
+
 // A "Morning Routine" isn't its own concept anywhere server-side -- no new
 // field, no migration. It's just Foundation-axis commitments whose window
 // starts before noon, grouped into one glanceable card instead of scattered
@@ -187,6 +219,18 @@ export default function TodayScreen({ user, onOpenNow, onSettings }) {
     load();
   }
 
+  // Previously the only way to bring a snoozed item back early was to wait
+  // it out or hand-edit the database -- SNOOZED is its own section now (see
+  // GET /commitments/today), with this as the one real action on it.
+  async function handleUnsnooze(commitmentId) {
+    setActing(true);
+    try {
+      await updateCommitment(commitmentId, { snoozed_until: null });
+    } catch { /* best-effort -- worst case it just stays snoozed until retried */ }
+    setActing(false);
+    load();
+  }
+
   const doneCount = schedule?.done_count ?? 0;
   const totalCount = schedule?.total_count ?? 0;
   const segments = Array.from({ length: Math.max(totalCount, 1) }, (_, i) => i < doneCount);
@@ -244,6 +288,14 @@ export default function TodayScreen({ user, onOpenNow, onSettings }) {
             <Section label="Happening now" items={schedule.sections.happening_now} onDone={handleDone} onRemove={handleRemove} acting={acting} />
             <Section label="Coming up" items={schedule.sections.coming_up} onDone={handleDone} onRemove={handleRemove} acting={acting} />
             <Section label="Anytime" items={schedule.sections.anytime} onDone={handleDone} onRemove={handleRemove} acting={acting} />
+            {schedule.sections.snoozed?.length > 0 && (
+              <View style={s.section}>
+                <Text style={s.sectionLabel}>Snoozed</Text>
+                {schedule.sections.snoozed.map(item => (
+                  <SnoozedRow key={item.commitment_id} item={item} onUnsnooze={handleUnsnooze} acting={acting} />
+                ))}
+              </View>
+            )}
           </>
         )}
       </ScrollView>

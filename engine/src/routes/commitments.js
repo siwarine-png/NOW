@@ -144,8 +144,9 @@ router.get('/today', async (req, res) => {
     .filter(c => !parentIdsWithOpenChildren.has(c.id))
     .filter(c => isDueByToday(c.due_date, user.timezone));
   const nowMin = nowMinutesInTz(user.timezone);
+  const now = new Date();
 
-  const earlier_today = [], happening_now = [], coming_up = [], anytime = [];
+  const earlier_today = [], happening_now = [], coming_up = [], anytime = [], snoozed = [];
   let doneCount = 0;
 
   for (const c of commitments || []) {
@@ -158,6 +159,16 @@ router.get('/today', async (req, res) => {
       due_date: c.due_date,
     };
 
+    // Snoozed was previously silently mixed into the other sections below --
+    // still counted as "today's total," just invisible as anything
+    // different from a normal row, with no way to see what's snoozed or
+    // bring it back early short of waiting out the timer or hand-editing
+    // the database. Its own section, checked before the window buckets.
+    if (c.snoozed_until && new Date(c.snoozed_until) > now) {
+      snoozed.push({ ...row, snoozed_until: c.snoozed_until });
+      continue;
+    }
+
     if (!c.window_start || !c.window_end) { anytime.push(row); continue; }
     if (isWithinWindow(nowMin, c.window_start, c.window_end)) { happening_now.push(row); continue; }
 
@@ -169,7 +180,7 @@ router.get('/today', async (req, res) => {
   res.json({
     done_count: doneCount,
     total_count: (commitments || []).length,
-    sections: { earlier_today, happening_now, coming_up, anytime },
+    sections: { earlier_today, happening_now, coming_up, anytime, snoozed },
   });
 });
 
@@ -195,7 +206,7 @@ router.get('/', async (req, res) => {
 // locks in whatever scope currently exists as done -- the API enforces the
 // ship, it doesn't just suggest it.
 router.patch('/:id', async (req, res) => {
-  const allowed = ['status', 'next_action', 'window_start', 'window_end', 'title', 'why', 'identity_tag', 'cadence', 'deadline', 'due_date', 'priority_tier', 'project_priority'];
+  const allowed = ['status', 'next_action', 'window_start', 'window_end', 'title', 'why', 'identity_tag', 'cadence', 'deadline', 'due_date', 'priority_tier', 'project_priority', 'snoozed_until'];
   const { force_ship } = req.body;
   const updates = {};
   allowed.forEach(k => { if (req.body[k] !== undefined) updates[k] = req.body[k]; });
