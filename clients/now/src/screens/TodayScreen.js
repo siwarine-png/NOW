@@ -66,46 +66,15 @@ function findNextScheduled(schedule) {
   return candidates[0];
 }
 
-// "Time off" = when the last thing on today's actual schedule ends, not
-// midnight or some fixed bedtime nobody configured -- an empty afternoon
-// with nothing left on the calendar should read as "you're done," not
-// count down toward an arbitrary hour.
-function findEndOfDay(schedule) {
-  if (!schedule) return null;
-  const timed = [
-    ...(schedule.sections.earlier_today || []),
-    ...(schedule.sections.happening_now || []),
-    ...(schedule.sections.coming_up || []),
-  ].filter(c => c.window_end);
-  if (!timed.length) return null;
-  const nowMin = new Date().getHours() * 60 + new Date().getMinutes();
-  let latest = null;
-  for (const c of timed) {
-    const [h, m] = c.window_end.split(':').map(Number);
-    const endMin = h * 60 + m;
-    if (!latest || endMin > latest) latest = endMin;
-  }
-  return { minutesUntil: latest - nowMin, endMin: latest };
-}
-
-// Anchors the day-progress bar's empty end -- the earliest window_start
-// among today's timed items, mirroring findEndOfDay's "actual schedule,
-// not an arbitrary clock time" logic for the other end.
-function findDayStart(schedule) {
-  if (!schedule) return null;
-  const timed = [
-    ...(schedule.sections.earlier_today || []),
-    ...(schedule.sections.happening_now || []),
-    ...(schedule.sections.coming_up || []),
-  ].filter(c => c.window_start);
-  if (!timed.length) return null;
-  let earliest = null;
-  for (const c of timed) {
-    const [h, m] = c.window_start.split(':').map(Number);
-    const startMin = h * 60 + m;
-    if (earliest == null || startMin < earliest) earliest = startMin;
-  }
-  return earliest;
+// Plain calendar-day awareness, deliberately NOT tied to the schedule --
+// anchoring "time left" to the last scheduled item broke down completely
+// on a light day (one lone item made it read identically to NEXT, and a
+// day with nothing scheduled couldn't show anything at all). Midnight is
+// the one boundary that's always there regardless of how much or little
+// is planned.
+function minutesUntilMidnight() {
+  const now = new Date();
+  return 24 * 60 - (now.getHours() * 60 + now.getMinutes());
 }
 
 function clamp01(n) {
@@ -316,9 +285,6 @@ export default function TodayScreen({ user, onOpenNow, onSettings }) {
   const segments = Array.from({ length: Math.max(totalCount, 1) }, (_, i) => i < doneCount);
 
   const nextScheduled = findNextScheduled(schedule);
-  const endOfDay = findEndOfDay(schedule);
-  const dayStart = findDayStart(schedule);
-  const nowMin = new Date().getHours() * 60 + new Date().getMinutes();
   // Ring "remaining" fraction for NEXT -- full disk means "not urgent yet,"
   // drained means it's arriving now. A wider horizon (e.g. 3h) makes the
   // drain too subtle to read at a glance (95% full looks the same as
@@ -326,13 +292,8 @@ export default function TodayScreen({ user, onOpenNow, onSettings }) {
   // close, then visibly empties through the final stretch.
   const NEXT_HORIZON_MIN = 60;
   const nextRemaining = nextScheduled ? clamp01(nextScheduled.minutes_until / NEXT_HORIZON_MIN) : 1;
-  // Day-progress for TIME LEFT: how much of today's actual scheduled span
-  // (first window_start to last window_end) has already elapsed -- the
-  // ring shows what's REMAINING, so it's the inverse of that.
-  const dayProgress = endOfDay && dayStart != null && endOfDay.endMin > dayStart
-    ? clamp01((nowMin - dayStart) / (endOfDay.endMin - dayStart))
-    : null;
-  const dayRemaining = dayProgress != null ? 1 - dayProgress : 1;
+  const minsLeftToday = minutesUntilMidnight();
+  const dayRemaining = clamp01(minsLeftToday / (24 * 60));
 
   const morningItems = schedule ? [
     ...(schedule.sections.earlier_today || []),
@@ -354,36 +315,27 @@ export default function TodayScreen({ user, onOpenNow, onSettings }) {
           </TouchableOpacity>
         </View>
 
-        {(nextScheduled || endOfDay) && (
-          <View style={s.timeCuesRow}>
-            {nextScheduled && (
-              <View style={s.timeCue}>
-                <RingProgress
-                  fraction={nextRemaining} color="#f59e0b"
-                  label={fmtMinutesUntil(nextScheduled.minutes_until).replace('in ', '')}
-                />
-                <View style={s.timeCueTextCol}>
-                  <Text style={s.timeCueLabel}>NEXT</Text>
-                  <Text style={s.timeCueSub} numberOfLines={1}>{nextScheduled.title}</Text>
-                </View>
+        <View style={s.timeCuesRow}>
+          {nextScheduled && (
+            <View style={s.timeCue}>
+              <RingProgress
+                fraction={nextRemaining} color="#f59e0b"
+                label={fmtMinutesUntil(nextScheduled.minutes_until).replace('in ', '')}
+              />
+              <View style={s.timeCueTextCol}>
+                <Text style={s.timeCueLabel}>NEXT</Text>
+                <Text style={s.timeCueSub} numberOfLines={1}>{nextScheduled.title}</Text>
               </View>
-            )}
-            {endOfDay && (
-              <View style={s.timeCue}>
-                <RingProgress
-                  fraction={dayRemaining} color="#6366f1"
-                  label={endOfDay.minutesUntil <= 0 ? '✓' : fmtDuration(endOfDay.minutesUntil)}
-                />
-                <View style={s.timeCueTextCol}>
-                  <Text style={s.timeCueLabel}>TIME LEFT</Text>
-                  <Text style={s.timeCueSub} numberOfLines={1}>
-                    {endOfDay.minutesUntil <= 0 ? 'Done for today' : "of today's schedule"}
-                  </Text>
-                </View>
-              </View>
-            )}
+            </View>
+          )}
+          <View style={s.timeCue}>
+            <RingProgress fraction={dayRemaining} color="#6366f1" label={fmtDuration(minsLeftToday)} />
+            <View style={s.timeCueTextCol}>
+              <Text style={s.timeCueLabel}>TIME LEFT</Text>
+              <Text style={s.timeCueSub} numberOfLines={1}>left in the day</Text>
+            </View>
           </View>
-        )}
+        </View>
 
         {totalCount > 0 && (
           <>
