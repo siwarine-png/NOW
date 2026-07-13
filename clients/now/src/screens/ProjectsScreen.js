@@ -22,6 +22,25 @@ function axisLabel(axis) {
   return axis.charAt(0).toUpperCase() + axis.slice(1);
 }
 
+function fmtTime(hhmm) {
+  if (!hhmm) return '';
+  const [h, m] = hhmm.split(':').map(Number);
+  const period = h >= 12 ? 'PM' : 'AM';
+  const h12 = h % 12 === 0 ? 12 : h % 12;
+  return `${h12}:${String(m).padStart(2, '0')} ${period}`;
+}
+
+const CADENCE_LABEL = { daily: 'Every day', weekly: 'Every week', monthly: 'Once a month' };
+
+function eventSchedule(e) {
+  const time = fmtTime(e.window_start);
+  if (e.cadence !== 'once') return `${CADENCE_LABEL[e.cadence] || e.cadence}${time ? ` · ${time}` : ''}`;
+  if (!e.due_date) return time;
+  const [y, m, d] = e.due_date.split('-').map(Number);
+  const dateLabel = new Date(y, m - 1, d).toLocaleDateString('en-US', { weekday: 'short', month: 'short', day: 'numeric' });
+  return time ? `${dateLabel} · ${time}` : dateLabel;
+}
+
 // Relative importance between concurrently active projects (e.g. "Day Arc
 // matters more than BUMP right now") -- feeds into the risk scorer's
 // priority_boost factor (engine/risk.js) so a higher-priority project's
@@ -58,6 +77,11 @@ export function findCrowdedAxes(projectRows) {
 // "what's a project vs. a standalone task" split, not just the crowding
 // number) -- a project IS just a commitment other commitments reference via
 // parent_commitment_id, no dedicated table (see engine/decomposition.js).
+// eventRows is_fixed split out from quickRows the same way -- is_fixed
+// (migration 026) is the one persisted signal that survives past creation
+// time (itemKind itself is only ever client-side wizard state, gone the
+// moment the commitment exists), so it's what every later screen has to
+// derive "is this an event" from, not a stored "kind" column.
 export function groupCommitments(all) {
   const childrenByParent = new Map();
   all.forEach(c => {
@@ -67,22 +91,26 @@ export function groupCommitments(all) {
   });
 
   const projectRows = [];
+  const eventRows = [];
   const quickRows = [];
   all.forEach(c => {
     if (c.parent_commitment_id) return; // it's a step, not a project of its own
     const children = childrenByParent.get(c.id) || [];
     if (children.length) {
       projectRows.push({ project: c, currentStep: children.find(ch => ch.status === 'active') || null });
+    } else if (c.is_fixed) {
+      eventRows.push(c);
     } else {
       quickRows.push(c);
     }
   });
-  return { projectRows, quickRows };
+  return { projectRows, eventRows, quickRows };
 }
 
 export default function ProjectsScreen({ user, onAddNew }) {
   const [loading, setLoading] = useState(true);
   const [projects, setProjects] = useState([]);
+  const [events, setEvents] = useState([]);
   const [quickTasks, setQuickTasks] = useState([]);
   const [selected, setSelected] = useState(new Set());
   const [deleting, setDeleting] = useState(false);
@@ -98,8 +126,9 @@ export default function ProjectsScreen({ user, onAddNew }) {
         getCommitments(user.id, 'paused'),
       ]);
       const all = [...(active || []), ...(paused || [])];
-      const { projectRows, quickRows } = groupCommitments(all);
+      const { projectRows, eventRows, quickRows } = groupCommitments(all);
       setProjects(projectRows);
+      setEvents(eventRows);
       setQuickTasks(quickRows);
     } catch { /* keep whatever was last shown rather than a broken empty screen */ }
     finally { setLoading(false); }
@@ -174,7 +203,7 @@ export default function ProjectsScreen({ user, onAddNew }) {
           </View>
         )}
 
-        {projects.length === 0 && quickTasks.length === 0 && (
+        {projects.length === 0 && events.length === 0 && quickTasks.length === 0 && (
           <Text style={s.emptyText}>Nothing tracked yet — tap below to add something.</Text>
         )}
 
@@ -220,9 +249,29 @@ export default function ProjectsScreen({ user, onAddNew }) {
           </View>
         )}
 
+        {events.length > 0 && (
+          <View style={s.section}>
+            <Text style={s.sectionLabel}>EVENTS</Text>
+            {events.map(e => (
+              <View key={e.id} style={s.card}>
+                <View style={s.cardHeader}>
+                  <View style={s.cardHeaderLeft}>
+                    <TouchableOpacity style={[s.checkbox, selected.has(e.id) && s.checkboxChecked]} onPress={() => toggleSelect(e.id)}>
+                      {selected.has(e.id) && <Text style={s.checkboxMark}>✓</Text>}
+                    </TouchableOpacity>
+                    <Text style={s.cardTitle}>{e.title}</Text>
+                  </View>
+                </View>
+                {e.identity_axis && <Text style={s.cardAxis}>{axisLabel(e.identity_axis)}</Text>}
+                <Text style={s.currentStep}>{eventSchedule(e)}</Text>
+              </View>
+            ))}
+          </View>
+        )}
+
         {quickTasks.length > 0 && (
           <View style={s.section}>
-            <Text style={s.sectionLabel}>QUICK TASKS</Text>
+            <Text style={s.sectionLabel}>TASKS</Text>
             {quickTasks.map(t => (
               <View key={t.id} style={s.card}>
                 <View style={s.cardHeader}>
