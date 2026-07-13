@@ -66,19 +66,41 @@ function findNextScheduled(schedule) {
   return candidates[0];
 }
 
-// Plain calendar-day awareness, deliberately NOT tied to the schedule --
-// anchoring "time left" to the last scheduled item broke down completely
-// on a light day (one lone item made it read identically to NEXT, and a
-// day with nothing scheduled couldn't show anything at all). Midnight is
-// the one boundary that's always there regardless of how much or little
-// is planned.
-function minutesUntilMidnight() {
-  const now = new Date();
-  return 24 * 60 - (now.getHours() * 60 + now.getMinutes());
+function timeToMinutes(hhmm) {
+  const [h, m] = hhmm.split(':').map(Number);
+  return h * 60 + m;
 }
 
 function clamp01(n) {
   return Math.max(0, Math.min(1, n));
+}
+
+// "Your day" as wake_time-to-sleep_time, not literal midnight -- plain
+// calendar-day awareness deliberately isn't tied to the schedule (anchoring
+// to the last scheduled item broke down on a light day), but midnight
+// itself is dead time nobody's awake for, which made "83% of your day
+// left" misleading at 4am. Same wrap-past-midnight handling as the
+// engine's own wakingMinutes/isWithinWakingHours (identityCheckin.js), so
+// an overnight sleep_time (e.g. 01:00) is treated the same way everywhere.
+function dayWindow(user) {
+  const wake = timeToMinutes(user?.wake_time || '07:00');
+  const sleep = timeToMinutes(user?.sleep_time || '23:00');
+  const span = sleep > wake ? sleep - wake : (1440 - wake) + sleep;
+  const now = new Date();
+  const nowMin = now.getHours() * 60 + now.getMinutes();
+  const withinDay = sleep > wake ? (nowMin >= wake && nowMin < sleep) : (nowMin >= wake || nowMin < sleep);
+
+  if (!withinDay) {
+    // Two distinct "not your day yet/anymore" cases only exist when
+    // wake/sleep don't wrap past midnight -- before wake vs after bedtime
+    // are different clock segments. In the overnight-bedtime case there's
+    // just one contiguous asleep gap between sleep and wake, no separate
+    // "hasn't started" segment to distinguish.
+    const state = (sleep > wake && nowMin < wake) ? 'before_wake' : 'asleep';
+    return { minutesLeft: 0, span, state };
+  }
+  const elapsedSinceWake = nowMin >= wake ? nowMin - wake : (1440 - wake) + nowMin;
+  return { minutesLeft: Math.max(0, span - elapsedSinceWake), span, state: 'awake' };
 }
 
 function axisLabel(axis) {
@@ -292,8 +314,8 @@ export default function TodayScreen({ user, onOpenNow, onSettings }) {
   // close, then visibly empties through the final stretch.
   const NEXT_HORIZON_MIN = 60;
   const nextRemaining = nextScheduled ? clamp01(nextScheduled.minutes_until / NEXT_HORIZON_MIN) : 1;
-  const minsLeftToday = minutesUntilMidnight();
-  const dayRemaining = clamp01(minsLeftToday / (24 * 60));
+  const dayW = dayWindow(user);
+  const dayRemaining = dayW.state === 'before_wake' ? 1 : clamp01(dayW.minutesLeft / dayW.span);
 
   const morningItems = schedule ? [
     ...(schedule.sections.earlier_today || []),
@@ -329,10 +351,16 @@ export default function TodayScreen({ user, onOpenNow, onSettings }) {
             </View>
           )}
           <View style={s.timeCue}>
-            <RingProgress fraction={dayRemaining} color="#6366f1" label={fmtDuration(minsLeftToday)} />
+            <RingProgress
+              fraction={dayRemaining} color="#6366f1"
+              label={dayW.state === 'awake' ? fmtDuration(dayW.minutesLeft) : '💤'}
+            />
             <View style={s.timeCueTextCol}>
               <Text style={s.timeCueLabel}>TIME LEFT</Text>
-              <Text style={s.timeCueSub} numberOfLines={1}>left in the day</Text>
+              <Text style={s.timeCueSub} numberOfLines={1}>
+                {dayW.state === 'awake' ? 'left in your day'
+                  : dayW.state === 'before_wake' ? "day hasn't started" : 'asleep'}
+              </Text>
             </View>
           </View>
         </View>
