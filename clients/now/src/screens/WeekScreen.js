@@ -90,6 +90,15 @@ export default function WeekScreen({ user }) {
       const byDate = {};
       weekKeys.forEach(k => { byDate[k] = []; });
       all.forEach(c => { if (c.due_date && byDate[c.due_date]) byDate[c.due_date].push(c); });
+      // A daily-recurring commitment (habit or event) has no single due_date
+      // -- that's correct, it doesn't happen on one specific day -- but it
+      // genuinely belongs on every day shown here, not nowhere. Weekly/
+      // monthly recurrence has no stored day-of-week/day-of-month to place
+      // it on a specific day with, so those still only show if they also
+      // happen to have a due_date (a one-time task/event, not a real
+      // recurring one) -- unresolved, not a bug, just not attempted here.
+      const dailyRecurring = all.filter(c => c.cadence === 'daily' && !c.due_date);
+      weekKeys.forEach(k => { byDate[k].push(...dailyRecurring); });
       setDays(weekKeys.map((k, i) => ({ key: k, label: formatDayLabel(k, i), items: byDate[k] })));
     } catch { /* keep whatever was last shown rather than a broken empty screen */ }
     finally { setLoading(false); }
