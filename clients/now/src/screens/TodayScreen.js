@@ -319,11 +319,12 @@ export default function TodayScreen({ user, onOpenNow, onSettings }) {
   const endOfDay = findEndOfDay(schedule);
   const dayStart = findDayStart(schedule);
   const nowMin = new Date().getHours() * 60 + new Date().getMinutes();
-  // Ring "remaining" fraction for NEXT -- full disk means it's still hours
-  // off, drained means it's arriving now. A 3h horizon means anything
-  // further out just reads as "plenty of time" (full ring) rather than the
-  // ring being meaningless at typical same-day distances.
-  const NEXT_HORIZON_MIN = 180;
+  // Ring "remaining" fraction for NEXT -- full disk means "not urgent yet,"
+  // drained means it's arriving now. A wider horizon (e.g. 3h) makes the
+  // drain too subtle to read at a glance (95% full looks the same as
+  // 100%) -- a 60min window means the ring stays full until genuinely
+  // close, then visibly empties through the final stretch.
+  const NEXT_HORIZON_MIN = 60;
   const nextRemaining = nextScheduled ? clamp01(nextScheduled.minutes_until / NEXT_HORIZON_MIN) : 1;
   // Day-progress for TIME LEFT: how much of today's actual scheduled span
   // (first window_start to last window_end) has already elapsed -- the
