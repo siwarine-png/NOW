@@ -244,6 +244,22 @@ router.patch('/:id', async (req, res) => {
     await advanceSiblingChain(current.parent_commitment_id);
   }
 
+  // The reverse direction: if the commitment JUST abandoned is itself a
+  // project's parent (other commitments reference it via
+  // parent_commitment_id), its still-open steps need to go with it --
+  // otherwise a removed project's individual steps (still 'active'/
+  // 'paused', e.g. from the New tab's bulk-remove checkboxes, which only
+  // ever targets the parent row) keep showing up on their own, orphaned,
+  // with no parent left to return to. 'completed' never reaches a parent
+  // except via advanceSiblingChain once every child is ALREADY resolved,
+  // so there's nothing left to cascade in that case -- only 'abandoned' does.
+  if (updates.status === 'abandoned') {
+    await sb.from('commitments')
+      .update({ status: 'abandoned' })
+      .eq('parent_commitment_id', current.id)
+      .in('status', ['active', 'paused']);
+  }
+
   log(req.app_id, data.user_id, 'commitment.updated', { commitment_id: data.id, updates });
   res.json(data);
 });
