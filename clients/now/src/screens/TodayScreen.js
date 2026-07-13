@@ -87,6 +87,30 @@ function findEndOfDay(schedule) {
   return { minutesUntil: latest - nowMin, endMin: latest };
 }
 
+// Anchors the day-progress bar's empty end -- the earliest window_start
+// among today's timed items, mirroring findEndOfDay's "actual schedule,
+// not an arbitrary clock time" logic for the other end.
+function findDayStart(schedule) {
+  if (!schedule) return null;
+  const timed = [
+    ...(schedule.sections.earlier_today || []),
+    ...(schedule.sections.happening_now || []),
+    ...(schedule.sections.coming_up || []),
+  ].filter(c => c.window_start);
+  if (!timed.length) return null;
+  let earliest = null;
+  for (const c of timed) {
+    const [h, m] = c.window_start.split(':').map(Number);
+    const startMin = h * 60 + m;
+    if (earliest == null || startMin < earliest) earliest = startMin;
+  }
+  return earliest;
+}
+
+function clamp01(n) {
+  return Math.max(0, Math.min(1, n));
+}
+
 function axisLabel(axis) {
   if (!axis) return null;
   return axis.charAt(0).toUpperCase() + axis.slice(1);
@@ -292,6 +316,16 @@ export default function TodayScreen({ user, onOpenNow, onSettings }) {
 
   const nextScheduled = findNextScheduled(schedule);
   const endOfDay = findEndOfDay(schedule);
+  const dayStart = findDayStart(schedule);
+  const nowMin = new Date().getHours() * 60 + new Date().getMinutes();
+  // Urgency fill for NEXT: empty at an hour+ away, fully lit as it arrives --
+  // a bar filling toward "now" reads faster than parsing "in 47m".
+  const nextUrgency = nextScheduled ? 1 - clamp01(nextScheduled.minutes_until / 60) : 0;
+  // Day-progress fill for TIME LEFT: how much of today's actual scheduled
+  // span (first window_start to last window_end) has already elapsed.
+  const dayProgress = endOfDay && dayStart != null && endOfDay.endMin > dayStart
+    ? clamp01((nowMin - dayStart) / (endOfDay.endMin - dayStart))
+    : null;
 
   const morningItems = schedule ? [
     ...(schedule.sections.earlier_today || []),
@@ -318,17 +352,25 @@ export default function TodayScreen({ user, onOpenNow, onSettings }) {
             {nextScheduled && (
               <View style={s.timeCue}>
                 <Text style={s.timeCueLabel}>NEXT</Text>
-                <Text style={s.timeCueText} numberOfLines={1}>
-                  {nextScheduled.title} · {fmtMinutesUntil(nextScheduled.minutes_until)}
-                </Text>
+                <Text style={s.timeCueBig}>{fmtMinutesUntil(nextScheduled.minutes_until).replace('in ', '')}</Text>
+                <Text style={s.timeCueSub} numberOfLines={1}>{nextScheduled.title}</Text>
+                <View style={s.timeCueTrack}>
+                  <View style={[s.timeCueFill, { width: `${Math.round(nextUrgency * 100)}%` }]} />
+                </View>
               </View>
             )}
             {endOfDay && (
               <View style={s.timeCue}>
                 <Text style={s.timeCueLabel}>TIME LEFT TODAY</Text>
-                <Text style={s.timeCueText} numberOfLines={1}>
-                  {endOfDay.minutesUntil <= 0 ? "You're done for today" : fmtDuration(endOfDay.minutesUntil)}
-                </Text>
+                {endOfDay.minutesUntil <= 0 ? (
+                  <Text style={s.timeCueBig}>Done ✓</Text>
+                ) : (
+                  <Text style={s.timeCueBig}>{fmtDuration(endOfDay.minutesUntil)}</Text>
+                )}
+                <Text style={s.timeCueSub}>of today's schedule</Text>
+                <View style={s.timeCueTrack}>
+                  <View style={[s.timeCueFill, s.timeCueFillDay, { width: `${Math.round((dayProgress ?? 1) * 100)}%` }]} />
+                </View>
               </View>
             )}
           </View>
@@ -400,10 +442,14 @@ const s = StyleSheet.create({
   subtitle: { fontSize: 13, color: '#475569', marginTop: 2 },
   settingsBtn: { padding: 8 },
   settingsIcon: { fontSize: 20, color: '#475569' },
-  timeCuesRow: { flexDirection: 'row', gap: 8, marginBottom: 4 },
-  timeCue: { flex: 1, backgroundColor: '#1e293b', borderRadius: 10, borderWidth: 1, borderColor: '#273449', paddingVertical: 8, paddingHorizontal: 10 },
-  timeCueLabel: { fontSize: 9, fontWeight: '800', color: '#475569', letterSpacing: 0.6, marginBottom: 2 },
-  timeCueText: { fontSize: 13, fontWeight: '700', color: '#cbd5e1' },
+  timeCuesRow: { flexDirection: 'row', gap: 8, marginBottom: 8 },
+  timeCue: { flex: 1, backgroundColor: '#1e293b', borderRadius: 12, borderWidth: 1, borderColor: '#273449', paddingVertical: 10, paddingHorizontal: 12 },
+  timeCueLabel: { fontSize: 9, fontWeight: '800', color: '#475569', letterSpacing: 0.6, marginBottom: 4 },
+  timeCueBig: { fontSize: 22, fontWeight: '900', color: '#f1f5f9', lineHeight: 26 },
+  timeCueSub: { fontSize: 11, color: '#64748b', marginTop: 2, marginBottom: 8 },
+  timeCueTrack: { height: 5, borderRadius: 3, backgroundColor: '#0f172a', overflow: 'hidden' },
+  timeCueFill: { height: '100%', borderRadius: 3, backgroundColor: '#f59e0b' },
+  timeCueFillDay: { backgroundColor: '#6366f1' },
   progressRow: { flexDirection: 'row', gap: 4, marginTop: 8 },
   segment: { flex: 1, height: 6, borderRadius: 3, backgroundColor: '#1e293b' },
   segmentDone: { backgroundColor: '#34d399' },
