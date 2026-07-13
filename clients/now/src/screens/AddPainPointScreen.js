@@ -85,6 +85,7 @@ const STEP_PROJECT_STEP = 8;
 const STEP_EVENT_TYPE = 9;
 const STEP_PROJECT_METHOD = 10;
 const STEP_PROJECT_UPLOAD = 11;
+const STEP_EVENT_DURATION = 12;
 
 const DURATIONS = [
   { label: '15 min', minutes: 15 },
@@ -319,11 +320,15 @@ export default function AddPainPointScreen({ user, onCreated, secondaryActionLab
 
   // Habits and events both skip the "start time vs deadline" question
   // entirely (neither framing fits something recurring, and an appointment
-  // just HAS a time, it doesn't "start around" or "deadline" toward one)
-  // and submit directly; tasks continue to STEP_TIME_MEANING as before.
+  // just HAS a time, it doesn't "start around" or "deadline" toward one).
+  // Habits submit directly; events go on to ask how long the appointment
+  // actually runs (a task's "duration" is really "time left before the
+  // deadline" -- STEP_DURATION -- but an event's duration is just its own
+  // length, so it gets its own step); tasks continue to STEP_TIME_MEANING.
   function continueFromTime(t) {
     setTime(t);
-    if (itemKind === 'habit' || itemKind === 'event') submit(t);
+    if (itemKind === 'habit') submit(t);
+    else if (itemKind === 'event') setStep(STEP_EVENT_DURATION);
     else setStep(STEP_TIME_MEANING);
   }
 
@@ -455,9 +460,9 @@ export default function AddPainPointScreen({ user, onCreated, secondaryActionLab
   // (see migration 026) -- exempts it from R4/R8's task-oriented nags,
   // since an appointment has no "first physical step" and doesn't go
   // stale the way a neglected task does.
-  function submit(finalTime) {
+  function submit(finalTime, durationMinutes) {
     return createAndReset({
-      window_start: finalTime, window_end: addMinutesToTime(finalTime, 60),
+      window_start: finalTime, window_end: addMinutesToTime(finalTime, durationMinutes ?? 60),
       ...(itemKind === 'task_due' ? { due_date: dueDate } : {}),
       ...(itemKind === 'event' ? { is_fixed: true, ...(cadence === 'once' ? { due_date: dueDate } : {}) } : {}),
     });
@@ -759,6 +764,20 @@ export default function AddPainPointScreen({ user, onCreated, secondaryActionLab
       <View style={s.chipGrid}>
         {DURATIONS.map(d => (
           <TouchableOpacity key={d.minutes} style={s.chip} disabled={loading} onPress={() => submitWithDeadline(time, d.minutes)}>
+            <Text style={s.chipText}>{d.label}</Text>
+          </TouchableOpacity>
+        ))}
+      </View>
+    </View>
+  );
+
+  if (step === STEP_EVENT_DURATION) return (
+    <View style={s.center}>
+      <Text style={s.title}>How long does{'\n'}it run?</Text>
+      <Text style={s.hint}>Starting at {formatDisplayTime(time)}.</Text>
+      <View style={s.chipGrid}>
+        {DURATIONS.map(d => (
+          <TouchableOpacity key={d.minutes} style={s.chip} disabled={loading} onPress={() => submit(time, d.minutes)}>
             <Text style={s.chipText}>{d.label}</Text>
           </TouchableOpacity>
         ))}
