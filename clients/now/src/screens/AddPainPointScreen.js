@@ -41,7 +41,12 @@
  *    step 'active', the rest 'paused'), same decomposition mechanic Day
  *    Arc's checklist uses (see engine/decomposition.js). Before this there
  *    was no way to create an actual multi-step project through the UI at
- *    all -- Day Arc only exists because it was hand-seeded via SQL.
+ *    all -- Day Arc only exists because it was hand-seeded via SQL. A
+ *    project can also be built all at once from an uploaded .txt file
+ *    instead of typing steps one by one (parseProjectFile) -- "# Project:
+ *    Title", "## Phase name" headers (order/label only, no real phase
+ *    entity exists, just a "Phase — step" prefix on each step's own title),
+ *    "* "/"- " bullets as the actual steps.
  *  - Event: something you attend, not something you do -- no urgency
  *    question, no start-vs-deadline framing (an appointment just HAS a
  *    time), and is_fixed: true (migration 026) exempts it from R4's "define
@@ -78,6 +83,8 @@ const STEP_TIME_MEANING = 5;
 const STEP_DURATION = 6;
 const STEP_PROJECT_STEP = 8;
 const STEP_EVENT_TYPE = 9;
+const STEP_PROJECT_METHOD = 10;
+const STEP_PROJECT_UPLOAD = 11;
 
 const DURATIONS = [
   { label: '15 min', minutes: 15 },
@@ -177,6 +184,32 @@ function formatDisplayDate(dateKey) {
   return new Date(y, m - 1, d).toLocaleDateString('en-US', { weekday: 'short', month: 'short', day: 'numeric' });
 }
 
+// Parses a plain-text checklist into a project: "# Project: <title>" (or
+// just "# <title>") is the project's own title, "## <phase>" headers exist
+// purely to order and label the steps under them -- there's no separate
+// "phase" entity in the data model, just the same flat parent+children
+// chain Day Arc's checklist already uses, so each phase becomes a short
+// "Phase — step" prefix on the step's own title instead of a real group.
+// "* " or "- " bullets are the actual steps; anything else is ignored.
+function parseProjectFile(text) {
+  const lines = String(text).split('\n').map(l => l.trim());
+  let title = null;
+  let currentPhase = null;
+  const steps = [];
+  for (const line of lines) {
+    if (!line) continue;
+    if (line.startsWith('# ')) {
+      title = line.slice(2).replace(/^Project:\s*/i, '').trim();
+    } else if (line.startsWith('## ')) {
+      currentPhase = line.slice(3).replace(/^Phase\s+\d+\s*:\s*/i, '').trim();
+    } else if (line.startsWith('* ') || line.startsWith('- ')) {
+      const stepText = line.slice(2).trim();
+      if (stepText) steps.push(currentPhase ? `${currentPhase} — ${stepText}` : stepText);
+    }
+  }
+  return { title, steps };
+}
+
 // secondaryActionLabel/onSecondaryAction: optional, shown only on the blank
 // STEP_TITLE screen -- used by OnboardingScreen's day-1 "add as many real
 // things as apply to you, or nothing at all" open loop (see its own header
@@ -199,6 +232,8 @@ export default function AddPainPointScreen({ user, onCreated, secondaryActionLab
   const [itemKind, setItemKind] = useState(null); // 'task' | 'habit' | 'project'
   const [projectSteps, setProjectSteps] = useState([]);
   const [currentStepInput, setCurrentStepInput] = useState('');
+  const [uploadedSteps, setUploadedSteps] = useState([]);
+  const [uploadError, setUploadError] = useState(null);
   const stepInputRef = useRef(null);
 
   // Soft nudge, not a gate -- every path out of here (including a failed
@@ -239,11 +274,26 @@ export default function AddPainPointScreen({ user, onCreated, secondaryActionLab
     else if (itemKind === 'task_no_due') createAndReset({}, axisKey);
     else if (itemKind === 'habit') setStep(STEP_RECURRENCE);
     else if (itemKind === 'event') setStep(STEP_EVENT_TYPE);
-    else {
-      setProjectSteps([]);
-      setCurrentStepInput('');
-      setStep(STEP_PROJECT_STEP);
-    }
+    else setStep(STEP_PROJECT_METHOD);
+  }
+
+  function handleFileSelected(e) {
+    const file = e.target.files?.[0];
+    if (!file) return;
+    setUploadError(null);
+    setUploadedSteps([]);
+    const reader = new FileReader();
+    reader.onload = () => {
+      const { title, steps } = parseProjectFile(reader.result);
+      if (!steps.length) {
+        setUploadError("Couldn't find any steps in that file -- lines need to start with * or -.");
+        return;
+      }
+      if (title) setCustomTitle(title);
+      setUploadedSteps(steps);
+    };
+    reader.onerror = () => setUploadError("Couldn't read that file.");
+    reader.readAsText(file);
   }
 
   // "One time" goes straight to the date step (shared with task_due, minus
@@ -298,8 +348,11 @@ export default function AddPainPointScreen({ user, onCreated, secondaryActionLab
   // rest 'paused' (queued), same shape Day Arc's checklist uses. The
   // engine auto-advances the chain as each step is finished or removed
   // (engine/decomposition.js) -- nothing extra needed here for that part.
-  async function finishProject() {
-    const steps = currentStepInput.trim() ? [...projectSteps, currentStepInput.trim()] : projectSteps;
+  // Shared by both ways in to a project: typed one step at a time
+  // (finishProject) or parsed whole from an uploaded file
+  // (finishUploadedProject) -- same shape either way once there's a final
+  // ordered list of step titles.
+  async function createProjectWithSteps(steps) {
     if (!steps.length || !user?.id) return;
     setLoading(true);
     try {
@@ -308,11 +361,10 @@ export default function AddPainPointScreen({ user, onCreated, secondaryActionLab
         cadence: 'once', identity_axis: identityAxis, priority_tier: 'normal',
       });
       for (let i = 0; i < steps.length; i++) {
-        // A project's own steps are typed one physical action at a time
-        // (STEP_PROJECT_STEP's "what's the first/next step?") -- that IS
-        // the next_action, not something to ask again later. Leaving this
-        // null was making R4_ambiguous_action re-ask "define your first
-        // physical step" for a step the user just explicitly wrote out.
+        // A project's own steps are typed (or uploaded) one physical action
+        // at a time -- that IS the next_action, not something to ask again
+        // later. Leaving this null was making R4_ambiguous_action re-ask
+        // "define your first physical step" for a step already written out.
         await createCommitment({
           user_id: user.id, parent_commitment_id: parent.id, title: steps[i], next_action: steps[i],
           cadence: 'once', identity_axis: identityAxis, priority_tier: 'normal',
@@ -326,6 +378,15 @@ export default function AddPainPointScreen({ user, onCreated, secondaryActionLab
     } finally {
       setLoading(false);
     }
+  }
+
+  function finishProject() {
+    const steps = currentStepInput.trim() ? [...projectSteps, currentStepInput.trim()] : projectSteps;
+    return createProjectWithSteps(steps);
+  }
+
+  function finishUploadedProject() {
+    return createProjectWithSteps(uploadedSteps);
   }
 
   function resetAll() {
@@ -342,6 +403,8 @@ export default function AddPainPointScreen({ user, onCreated, secondaryActionLab
     setItemKind(null);
     setProjectSteps([]);
     setCurrentStepInput('');
+    setUploadedSteps([]);
+    setUploadError(null);
   }
 
   // axisOverride: only needed by task_no_due's immediate submit from
@@ -520,6 +583,47 @@ export default function AddPainPointScreen({ user, onCreated, secondaryActionLab
             onPress={() => chooseDate(parseDateInput(customDateInput) || dueDate)}
           >
             <Text style={s.btnText}>Set and continue →</Text>
+          </TouchableOpacity>
+        </>
+      )}
+    </View>
+  );
+
+  if (step === STEP_PROJECT_METHOD) return (
+    <View style={s.center}>
+      <Text style={s.title}>How do you want{'\n'}to build this?</Text>
+      <TouchableOpacity
+        style={s.btn}
+        onPress={() => { setProjectSteps([]); setCurrentStepInput(''); setStep(STEP_PROJECT_STEP); }}
+      >
+        <Text style={s.btnText}>Add steps one by one</Text>
+      </TouchableOpacity>
+      <TouchableOpacity style={[s.btn, s.btnSecondary]} onPress={() => setStep(STEP_PROJECT_UPLOAD)}>
+        <Text style={s.btnText}>Upload a checklist file</Text>
+      </TouchableOpacity>
+    </View>
+  );
+
+  if (step === STEP_PROJECT_UPLOAD) return (
+    <View style={s.center}>
+      <Text style={s.title}>Upload a{'\n'}checklist file</Text>
+      <Text style={s.hint}>
+        A .txt file: "# Project: Title", "## Phase name" headers, "* step" bullets.
+      </Text>
+
+      {Platform.OS === 'web' ? (
+        <input type="file" accept=".txt,text/plain" onChange={handleFileSelected} style={webFileInputStyle} />
+      ) : (
+        <Text style={s.hint}>File upload isn't available on this device yet -- use the web app, or add steps one by one instead.</Text>
+      )}
+
+      {uploadError && <Text style={s.errorText}>{uploadError}</Text>}
+
+      {uploadedSteps.length > 0 && (
+        <>
+          <Text style={s.hint}>{uploadedSteps.length} steps found in "{customTitle}"</Text>
+          <TouchableOpacity style={[s.btn, loading && s.btnDisabled]} disabled={loading} onPress={finishUploadedProject}>
+            {loading ? <ActivityIndicator color="#fff" /> : <Text style={s.btnText}>Create project →</Text>}
           </TouchableOpacity>
         </>
       )}
@@ -709,10 +813,17 @@ const webDateInputStyle = {
   marginBottom: 16, border: '1px solid #334155', width: 240, colorScheme: 'dark',
 };
 
+// Same reasoning as webDateInputStyle above -- a raw HTML element, real CSS
+// inline styles rather than a StyleSheet entry.
+const webFileInputStyle = {
+  color: '#94a3b8', fontSize: 13, marginBottom: 16, maxWidth: 260,
+};
+
 const s = StyleSheet.create({
   center: { flex: 1, backgroundColor: '#0f172a', justifyContent: 'center', alignItems: 'center', padding: 28 },
   title: { fontSize: 26, fontWeight: '900', color: '#fff', textAlign: 'center', lineHeight: 34, marginBottom: 8 },
   hint: { fontSize: 15, color: '#64748b', marginBottom: 32, textAlign: 'center' },
+  errorText: { fontSize: 13, color: '#fca5a5', marginBottom: 20, textAlign: 'center' },
   input: { backgroundColor: '#1e293b', borderRadius: 10, padding: 14, fontSize: 16, color: '#f1f5f9', marginBottom: 16, borderWidth: 1, borderColor: '#334155', width: 240, textAlign: 'center' },
   btn: { backgroundColor: '#6366f1', borderRadius: 12, padding: 16, alignItems: 'center', marginTop: 10, minWidth: 220 },
   btnSecondary: { backgroundColor: '#1e293b', borderWidth: 1, borderColor: '#334155' },
