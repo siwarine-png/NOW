@@ -16,6 +16,7 @@ import { getInterventionNow, getTodaySchedule, postCheckin, getIdentityCheckinSt
 import { enqueue } from '../store/queue';
 import IdentityCheckinPrompt, { shouldShowIdentityCheckin } from '../components/IdentityCheckinPrompt';
 import StaleProjectPrompt from '../components/StaleProjectPrompt';
+import RingProgress from '../components/RingProgress';
 
 function greeting() {
   const h = new Date().getHours();
@@ -318,14 +319,19 @@ export default function TodayScreen({ user, onOpenNow, onSettings }) {
   const endOfDay = findEndOfDay(schedule);
   const dayStart = findDayStart(schedule);
   const nowMin = new Date().getHours() * 60 + new Date().getMinutes();
-  // Urgency fill for NEXT: empty at an hour+ away, fully lit as it arrives --
-  // a bar filling toward "now" reads faster than parsing "in 47m".
-  const nextUrgency = nextScheduled ? 1 - clamp01(nextScheduled.minutes_until / 60) : 0;
-  // Day-progress fill for TIME LEFT: how much of today's actual scheduled
-  // span (first window_start to last window_end) has already elapsed.
+  // Ring "remaining" fraction for NEXT -- full disk means it's still hours
+  // off, drained means it's arriving now. A 3h horizon means anything
+  // further out just reads as "plenty of time" (full ring) rather than the
+  // ring being meaningless at typical same-day distances.
+  const NEXT_HORIZON_MIN = 180;
+  const nextRemaining = nextScheduled ? clamp01(nextScheduled.minutes_until / NEXT_HORIZON_MIN) : 1;
+  // Day-progress for TIME LEFT: how much of today's actual scheduled span
+  // (first window_start to last window_end) has already elapsed -- the
+  // ring shows what's REMAINING, so it's the inverse of that.
   const dayProgress = endOfDay && dayStart != null && endOfDay.endMin > dayStart
     ? clamp01((nowMin - dayStart) / (endOfDay.endMin - dayStart))
     : null;
+  const dayRemaining = dayProgress != null ? 1 - dayProgress : 1;
 
   const morningItems = schedule ? [
     ...(schedule.sections.earlier_today || []),
@@ -351,25 +357,27 @@ export default function TodayScreen({ user, onOpenNow, onSettings }) {
           <View style={s.timeCuesRow}>
             {nextScheduled && (
               <View style={s.timeCue}>
-                <Text style={s.timeCueLabel}>NEXT</Text>
-                <Text style={s.timeCueBig}>{fmtMinutesUntil(nextScheduled.minutes_until).replace('in ', '')}</Text>
-                <Text style={s.timeCueSub} numberOfLines={1}>{nextScheduled.title}</Text>
-                <View style={s.timeCueTrack}>
-                  <View style={[s.timeCueFill, { width: `${Math.round(nextUrgency * 100)}%` }]} />
+                <RingProgress
+                  fraction={nextRemaining} color="#f59e0b"
+                  label={fmtMinutesUntil(nextScheduled.minutes_until).replace('in ', '')}
+                />
+                <View style={s.timeCueTextCol}>
+                  <Text style={s.timeCueLabel}>NEXT</Text>
+                  <Text style={s.timeCueSub} numberOfLines={1}>{nextScheduled.title}</Text>
                 </View>
               </View>
             )}
             {endOfDay && (
               <View style={s.timeCue}>
-                <Text style={s.timeCueLabel}>TIME LEFT TODAY</Text>
-                {endOfDay.minutesUntil <= 0 ? (
-                  <Text style={s.timeCueBig}>Done ✓</Text>
-                ) : (
-                  <Text style={s.timeCueBig}>{fmtDuration(endOfDay.minutesUntil)}</Text>
-                )}
-                <Text style={s.timeCueSub}>of today's schedule</Text>
-                <View style={s.timeCueTrack}>
-                  <View style={[s.timeCueFill, s.timeCueFillDay, { width: `${Math.round((dayProgress ?? 1) * 100)}%` }]} />
+                <RingProgress
+                  fraction={dayRemaining} color="#6366f1"
+                  label={endOfDay.minutesUntil <= 0 ? '✓' : fmtDuration(endOfDay.minutesUntil)}
+                />
+                <View style={s.timeCueTextCol}>
+                  <Text style={s.timeCueLabel}>TIME LEFT</Text>
+                  <Text style={s.timeCueSub} numberOfLines={1}>
+                    {endOfDay.minutesUntil <= 0 ? 'Done for today' : "of today's schedule"}
+                  </Text>
                 </View>
               </View>
             )}
@@ -443,13 +451,10 @@ const s = StyleSheet.create({
   settingsBtn: { padding: 8 },
   settingsIcon: { fontSize: 20, color: '#475569' },
   timeCuesRow: { flexDirection: 'row', gap: 8, marginBottom: 8 },
-  timeCue: { flex: 1, backgroundColor: '#1e293b', borderRadius: 12, borderWidth: 1, borderColor: '#273449', paddingVertical: 10, paddingHorizontal: 12 },
-  timeCueLabel: { fontSize: 9, fontWeight: '800', color: '#475569', letterSpacing: 0.6, marginBottom: 4 },
-  timeCueBig: { fontSize: 22, fontWeight: '900', color: '#f1f5f9', lineHeight: 26 },
-  timeCueSub: { fontSize: 11, color: '#64748b', marginTop: 2, marginBottom: 8 },
-  timeCueTrack: { height: 5, borderRadius: 3, backgroundColor: '#0f172a', overflow: 'hidden' },
-  timeCueFill: { height: '100%', borderRadius: 3, backgroundColor: '#f59e0b' },
-  timeCueFillDay: { backgroundColor: '#6366f1' },
+  timeCue: { flex: 1, flexDirection: 'row', alignItems: 'center', gap: 10, backgroundColor: '#1e293b', borderRadius: 12, borderWidth: 1, borderColor: '#273449', paddingVertical: 10, paddingHorizontal: 12 },
+  timeCueTextCol: { flex: 1 },
+  timeCueLabel: { fontSize: 9, fontWeight: '800', color: '#475569', letterSpacing: 0.6, marginBottom: 3 },
+  timeCueSub: { fontSize: 12, color: '#94a3b8', fontWeight: '600' },
   progressRow: { flexDirection: 'row', gap: 4, marginTop: 8 },
   segment: { flex: 1, height: 6, borderRadius: 3, backgroundColor: '#1e293b' },
   segmentDone: { backgroundColor: '#34d399' },
