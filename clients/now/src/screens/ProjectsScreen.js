@@ -22,6 +22,18 @@ function axisLabel(axis) {
   return axis.charAt(0).toUpperCase() + axis.slice(1);
 }
 
+// Relative importance between concurrently active projects (e.g. "Day Arc
+// matters more than BUMP right now") -- feeds into the risk scorer's
+// priority_boost factor (engine/risk.js) so a higher-priority project's
+// current step wins the DO-THIS-NOW rotation more often, without being an
+// absolute override the way priority_tier: 'critical' is. null (unset)
+// reads as Normal (2) everywhere this is checked, client and engine both.
+const PRIORITY_LEVELS = [
+  { level: 1, label: 'Low' },
+  { level: 2, label: 'Normal' },
+  { level: 3, label: 'High' },
+];
+
 // A cheap first-pass crowding signal: more than 2 simultaneously active
 // projects on the same axis, competing for the same slice of attention.
 // This deliberately doesn't try to weigh it against current_hours_per_week
@@ -101,6 +113,17 @@ export default function ProjectsScreen({ user, onAddNew }) {
     });
   }
 
+  // Optimistic local update (setProjects) so the tap feels instant, plus a
+  // real reload underneath -- the engine reads this from the parent for
+  // every child step's own scoring, so a stale local cache would just be a
+  // display quirk, not a real scoring bug either way.
+  async function setPriority(projectId, level) {
+    setProjects(rows => rows.map(r => r.project.id === projectId ? { ...r, project: { ...r.project, project_priority: level } } : r));
+    try {
+      await updateCommitment(projectId, { project_priority: level });
+    } catch (e) { /* best-effort -- worst case it reverts on next load */ }
+  }
+
   // Same abandon-not-delete semantics as every other Remove in this app --
   // drops each selected item out of every active-commitment query without
   // losing history. Only prompts a confirm here (unlike the single-item
@@ -170,6 +193,19 @@ export default function ProjectsScreen({ user, onAddNew }) {
                   {project.status === 'paused' && <Text style={s.pausedBadge}>⏸ Paused</Text>}
                 </View>
                 {project.identity_axis && <Text style={s.cardAxis}>{axisLabel(project.identity_axis)}</Text>}
+                <View style={s.priorityRow}>
+                  {PRIORITY_LEVELS.map(p => (
+                    <TouchableOpacity
+                      key={p.level}
+                      style={[s.priorityChip, (project.project_priority ?? 2) === p.level && s.priorityChipActive]}
+                      onPress={() => setPriority(project.id, p.level)}
+                    >
+                      <Text style={[s.priorityChipText, (project.project_priority ?? 2) === p.level && s.priorityChipTextActive]}>
+                        {p.label}
+                      </Text>
+                    </TouchableOpacity>
+                  ))}
+                </View>
                 {project.status === 'paused' ? (
                   <Text style={s.pausedReason}>
                     {project.paused_reason ? `"${project.paused_reason}"` : 'Paused, no reason given'}
@@ -239,6 +275,11 @@ const s = StyleSheet.create({
   checkboxMark: { color: '#fff', fontSize: 13, fontWeight: '900', lineHeight: 14 },
   cardTitle: { fontSize: 15, fontWeight: '800', color: '#f1f5f9', flex: 1 },
   cardAxis: { fontSize: 11, color: '#818cf8', fontWeight: '700', marginTop: 4 },
+  priorityRow: { flexDirection: 'row', gap: 6, marginTop: 8 },
+  priorityChip: { backgroundColor: '#0f172a', borderRadius: 8, paddingVertical: 5, paddingHorizontal: 10, borderWidth: 1, borderColor: '#334155' },
+  priorityChipActive: { backgroundColor: '#6366f1', borderColor: '#6366f1' },
+  priorityChipText: { color: '#64748b', fontSize: 11, fontWeight: '700' },
+  priorityChipTextActive: { color: '#fff' },
   currentStep: { fontSize: 13, color: '#94a3b8', marginTop: 8 },
   pausedBadge: { fontSize: 11, fontWeight: '800', color: '#f59e0b' },
   pausedReason: { fontSize: 13, color: '#94a3b8', fontStyle: 'italic', marginTop: 8 },

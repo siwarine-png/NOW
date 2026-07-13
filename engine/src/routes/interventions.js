@@ -1,7 +1,7 @@
 const { Router } = require('express');
 const sb = require('../db/client');
 const { loadStats } = require('../engine/stats');
-const { scoreRisk } = require('../engine/risk');
+const { scoreRisk, resolveProjectPriority } = require('../engine/risk');
 const { evaluate, isWithinWindow, nowMinutesInTz, isDueByToday } = require('../engine/rules');
 const { pickDomainIntervention } = require('../engine/domainRules');
 const { log } = require('../engine/events');
@@ -47,6 +47,10 @@ router.get('/now', async (req, res) => {
   const parentIdsWithOpenChildren = new Set(
     (allCommitments || []).filter(c => c.parent_commitment_id).map(c => c.parent_commitment_id)
   );
+  // A project's own parent stays 'active' while its children resolve, so
+  // it's already present in allCommitments -- no extra query needed to
+  // resolve a child step's project_priority from it (see risk.js).
+  const commitmentsById = new Map((allCommitments || []).map(c => [c.id, c]));
   // A future due_date (a task scheduled for a specific later day, not just a
   // time-of-day) means "not yet" -- it shouldn't win the rotation or fire a
   // push before its own day arrives.
@@ -111,7 +115,7 @@ router.get('/now', async (req, res) => {
     const scored = (await Promise.all(dueNow.map(async c => {
       const stats = await loadStats(c.id, c.cadence);
       if (stats.checkedInToday) return null;
-      const { score } = scoreRisk(c, stats);
+      const { score } = scoreRisk(c, stats, resolveProjectPriority(c, commitmentsById));
       return { commitment: c, stats, score };
     }))).filter(Boolean).sort((a, b) => b.score - a.score);
 
@@ -220,7 +224,7 @@ router.get('/now', async (req, res) => {
   const scored = await Promise.all(
     available.map(async c => {
       const stats = await loadStats(c.id, c.cadence);
-      const { score, top_factor, factors } = scoreRisk(c, stats);
+      const { score, top_factor, factors } = scoreRisk(c, stats, resolveProjectPriority(c, commitmentsById));
       return { commitment: c, stats, score, top_factor, factors };
     })
   );

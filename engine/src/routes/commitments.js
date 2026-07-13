@@ -195,7 +195,7 @@ router.get('/', async (req, res) => {
 // locks in whatever scope currently exists as done -- the API enforces the
 // ship, it doesn't just suggest it.
 router.patch('/:id', async (req, res) => {
-  const allowed = ['status', 'next_action', 'window_start', 'window_end', 'title', 'why', 'identity_tag', 'cadence', 'deadline', 'due_date', 'priority_tier'];
+  const allowed = ['status', 'next_action', 'window_start', 'window_end', 'title', 'why', 'identity_tag', 'cadence', 'deadline', 'due_date', 'priority_tier', 'project_priority'];
   const { force_ship } = req.body;
   const updates = {};
   allowed.forEach(k => { if (req.body[k] !== undefined) updates[k] = req.body[k]; });

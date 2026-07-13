@@ -7,7 +7,7 @@ const cron = require('node-cron');
 const webpush = require('web-push');
 const sb = require('../db/client');
 const { loadStats } = require('./stats');
-const { scoreRisk } = require('./risk');
+const { scoreRisk, resolveProjectPriority } = require('./risk');
 const { evaluate, isWithinWindow, nowMinutesInTz, isDueByToday } = require('./rules');
 const { pickDomainIntervention } = require('./domainRules');
 const { deliver } = require('./webhooks');
@@ -30,6 +30,7 @@ async function runSchedulerTick() {
       const { data: commitments } = await sb
         .from('commitments').select('*').eq('user_id', user.id).eq('status', 'active');
       if (!commitments?.length) continue;
+      const commitmentsById = new Map(commitments.map(c => [c.id, c]));
 
       for (const c of commitments) {
         if (c.snoozed_until && new Date(c.snoozed_until) > new Date()) continue;
@@ -42,7 +43,7 @@ async function runSchedulerTick() {
         const stats = await loadStats(c.id, c.cadence);
         if (stats.checkedInToday) continue;
 
-        const { score } = scoreRisk(c, stats);
+        const { score } = scoreRisk(c, stats, resolveProjectPriority(c, commitmentsById));
         const ctx = { commitment: c, stats, energy: null, checkedInToday: false, nowMin };
         const result = evaluate(ctx);
         if (!result) continue;
@@ -98,6 +99,7 @@ function isBusy(user) {
 async function pickCommitmentPushBody(userId, nowMin, now, timezone) {
   const { data: commitments } = await sb
     .from('commitments').select('*').eq('user_id', userId).eq('status', 'active');
+  const commitmentsById = new Map((commitments || []).map(c => [c.id, c]));
   const candidates = (commitments || []).filter(c =>
     isDueByToday(c.due_date, timezone) &&
     isWithinWindow(nowMin, c.window_start, c.window_end) &&
@@ -108,7 +110,7 @@ async function pickCommitmentPushBody(userId, nowMin, now, timezone) {
   const scored = await Promise.all(candidates.map(async c => {
     const stats = await loadStats(c.id, c.cadence);
     if (stats.checkedInToday) return null;
-    const { score } = scoreRisk(c, stats);
+    const { score } = scoreRisk(c, stats, resolveProjectPriority(c, commitmentsById));
     return { c, score };
   }));
   const best = scored.filter(Boolean).sort((a, b) => b.score - a.score)[0];
