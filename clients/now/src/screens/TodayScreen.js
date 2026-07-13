@@ -40,6 +40,53 @@ function fmtMinutesUntil(min) {
   return `in ${h}h ${m}m`;
 }
 
+function fmtDuration(min) {
+  const h = Math.floor(min / 60), m = min % 60;
+  if (h === 0) return `${m}m`;
+  if (m === 0) return `${h}h`;
+  return `${h}h ${m}m`;
+}
+
+// Time blindness -- losing track of how much of the day is left, not just
+// "what's the current task" -- is the specific ADHD pain point these two
+// cues exist for, so both stay visible up top regardless of what card is
+// showing below, not tucked inside DO THIS NOW (which already disappears
+// whenever nothing is actively due).
+
+// Nearest not-yet-started item, in whichever section actually has a
+// window_start today -- coming_up is the common case, but a fresh page
+// load can catch something still sitting in earlier_today's overdue bucket
+// too, so both are searched rather than assuming section placement.
+function findNextScheduled(schedule) {
+  if (!schedule) return null;
+  const candidates = [...(schedule.sections.coming_up || [])].filter(c => c.minutes_until != null);
+  if (!candidates.length) return null;
+  candidates.sort((a, b) => a.minutes_until - b.minutes_until);
+  return candidates[0];
+}
+
+// "Time off" = when the last thing on today's actual schedule ends, not
+// midnight or some fixed bedtime nobody configured -- an empty afternoon
+// with nothing left on the calendar should read as "you're done," not
+// count down toward an arbitrary hour.
+function findEndOfDay(schedule) {
+  if (!schedule) return null;
+  const timed = [
+    ...(schedule.sections.earlier_today || []),
+    ...(schedule.sections.happening_now || []),
+    ...(schedule.sections.coming_up || []),
+  ].filter(c => c.window_end);
+  if (!timed.length) return null;
+  const nowMin = new Date().getHours() * 60 + new Date().getMinutes();
+  let latest = null;
+  for (const c of timed) {
+    const [h, m] = c.window_end.split(':').map(Number);
+    const endMin = h * 60 + m;
+    if (!latest || endMin > latest) latest = endMin;
+  }
+  return { minutesUntil: latest - nowMin, endMin: latest };
+}
+
 function axisLabel(axis) {
   if (!axis) return null;
   return axis.charAt(0).toUpperCase() + axis.slice(1);
@@ -157,6 +204,10 @@ export default function TodayScreen({ user, onOpenNow, onSettings }) {
   const [acting, setActing] = useState(false);
   const [checkinDue, setCheckinDue] = useState(false);
   const [staleProject, setStaleProject] = useState(null);
+  // Forces a re-render every 30s purely so the two countdown pills tick
+  // down on their own -- schedule itself only reloads on AppState changes,
+  // which would otherwise leave "in 10m" frozen at whatever it read on load.
+  const [, setTick] = useState(0);
 
   const load = useCallback(async () => {
     if (!user) return;
@@ -193,6 +244,10 @@ export default function TodayScreen({ user, onOpenNow, onSettings }) {
     const sub = AppState.addEventListener('change', s => { if (s === 'active') load(); });
     return () => sub.remove();
   }, [load]);
+  useEffect(() => {
+    const t = setInterval(() => setTick(x => x + 1), 30000);
+    return () => clearInterval(t);
+  }, []);
 
   async function handleDone(commitmentId) {
     setActing(true);
@@ -235,6 +290,9 @@ export default function TodayScreen({ user, onOpenNow, onSettings }) {
   const totalCount = schedule?.total_count ?? 0;
   const segments = Array.from({ length: Math.max(totalCount, 1) }, (_, i) => i < doneCount);
 
+  const nextScheduled = findNextScheduled(schedule);
+  const endOfDay = findEndOfDay(schedule);
+
   const morningItems = schedule ? [
     ...(schedule.sections.earlier_today || []),
     ...(schedule.sections.happening_now || []),
@@ -254,6 +312,27 @@ export default function TodayScreen({ user, onOpenNow, onSettings }) {
             <Text style={s.settingsIcon}>⚙</Text>
           </TouchableOpacity>
         </View>
+
+        {(nextScheduled || endOfDay) && (
+          <View style={s.timeCuesRow}>
+            {nextScheduled && (
+              <View style={s.timeCue}>
+                <Text style={s.timeCueLabel}>NEXT</Text>
+                <Text style={s.timeCueText} numberOfLines={1}>
+                  {nextScheduled.title} · {fmtMinutesUntil(nextScheduled.minutes_until)}
+                </Text>
+              </View>
+            )}
+            {endOfDay && (
+              <View style={s.timeCue}>
+                <Text style={s.timeCueLabel}>TIME LEFT TODAY</Text>
+                <Text style={s.timeCueText} numberOfLines={1}>
+                  {endOfDay.minutesUntil <= 0 ? "You're done for today" : fmtDuration(endOfDay.minutesUntil)}
+                </Text>
+              </View>
+            )}
+          </View>
+        )}
 
         {totalCount > 0 && (
           <>
@@ -321,6 +400,10 @@ const s = StyleSheet.create({
   subtitle: { fontSize: 13, color: '#475569', marginTop: 2 },
   settingsBtn: { padding: 8 },
   settingsIcon: { fontSize: 20, color: '#475569' },
+  timeCuesRow: { flexDirection: 'row', gap: 8, marginBottom: 4 },
+  timeCue: { flex: 1, backgroundColor: '#1e293b', borderRadius: 10, borderWidth: 1, borderColor: '#273449', paddingVertical: 8, paddingHorizontal: 10 },
+  timeCueLabel: { fontSize: 9, fontWeight: '800', color: '#475569', letterSpacing: 0.6, marginBottom: 2 },
+  timeCueText: { fontSize: 13, fontWeight: '700', color: '#cbd5e1' },
   progressRow: { flexDirection: 'row', gap: 4, marginTop: 8 },
   segment: { flex: 1, height: 6, borderRadius: 3, backgroundColor: '#1e293b' },
   segmentDone: { backgroundColor: '#34d399' },
