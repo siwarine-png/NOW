@@ -13,8 +13,8 @@
  * home instead of only being reachable from being stuck.
  */
 import React, { useState, useEffect, useCallback } from 'react';
-import { View, Text, TouchableOpacity, StyleSheet, ActivityIndicator, ScrollView } from 'react-native';
-import { getCommitments, updateCommitment } from '../api/engine';
+import { View, Text, TextInput, TouchableOpacity, StyleSheet, ActivityIndicator, ScrollView } from 'react-native';
+import { getCommitments, updateCommitment, addProjectStep } from '../api/engine';
 import { showAlert } from '../utils/alert';
 
 function axisLabel(axis) {
@@ -114,6 +114,9 @@ export default function ProjectsScreen({ user, onAddNew }) {
   const [quickTasks, setQuickTasks] = useState([]);
   const [selected, setSelected] = useState(new Set());
   const [deleting, setDeleting] = useState(false);
+  const [addingStepFor, setAddingStepFor] = useState(null);
+  const [stepInput, setStepInput] = useState('');
+  const [addingStep, setAddingStep] = useState(false);
 
   const load = useCallback(async () => {
     if (!user?.id) return;
@@ -151,6 +154,32 @@ export default function ProjectsScreen({ user, onAddNew }) {
     try {
       await updateCommitment(projectId, { project_priority: level });
     } catch (e) { /* best-effort -- worst case it reverts on next load */ }
+  }
+
+  function toggleAddStep(projectId) {
+    setAddingStepFor(current => (current === projectId ? null : projectId));
+    setStepInput('');
+  }
+
+  // No optimistic local update here (unlike setPriority) -- whether the new
+  // step lands 'active' or 'paused' depends on server-side state (is
+  // anything already active on this project?) this screen doesn't track
+  // precisely enough to predict, so a real reload is the only way to show
+  // the right currentStep afterward.
+  async function submitAddStep(projectId) {
+    const title = stepInput.trim();
+    if (!title) return;
+    setAddingStep(true);
+    try {
+      await addProjectStep(projectId, title);
+      setAddingStepFor(null);
+      setStepInput('');
+      await load();
+    } catch (e) {
+      showAlert("Couldn't add that step", e.message);
+    } finally {
+      setAddingStep(false);
+    }
   }
 
   // Same abandon-not-delete semantics as every other Remove in this app --
@@ -244,6 +273,30 @@ export default function ProjectsScreen({ user, onAddNew }) {
                     {currentStep ? `Current step: ${currentStep.title}` : 'No active step right now'}
                   </Text>
                 )}
+
+                {addingStepFor === project.id ? (
+                  <View style={s.addStepRow}>
+                    <TextInput
+                      style={s.addStepInput} value={stepInput} onChangeText={setStepInput}
+                      placeholder="e.g. Order the shipping labels" placeholderTextColor="#475569"
+                      autoFocus onSubmitEditing={() => submitAddStep(project.id)} returnKeyType="done"
+                    />
+                    <TouchableOpacity
+                      style={[s.addStepBtn, (addingStep || !stepInput.trim()) && s.btnDisabled]}
+                      disabled={addingStep || !stepInput.trim()}
+                      onPress={() => submitAddStep(project.id)}
+                    >
+                      {addingStep ? <ActivityIndicator size="small" color="#fff" /> : <Text style={s.addStepBtnText}>Add</Text>}
+                    </TouchableOpacity>
+                    <TouchableOpacity style={s.addStepCancel} onPress={() => toggleAddStep(project.id)}>
+                      <Text style={s.addStepCancelText}>Cancel</Text>
+                    </TouchableOpacity>
+                  </View>
+                ) : (
+                  <TouchableOpacity style={s.addStepLink} onPress={() => toggleAddStep(project.id)}>
+                    <Text style={s.addStepLinkText}>+ Add step</Text>
+                  </TouchableOpacity>
+                )}
               </View>
             ))}
           </View>
@@ -332,6 +385,14 @@ const s = StyleSheet.create({
   currentStep: { fontSize: 13, color: '#94a3b8', marginTop: 8 },
   pausedBadge: { fontSize: 11, fontWeight: '800', color: '#f59e0b' },
   pausedReason: { fontSize: 13, color: '#94a3b8', fontStyle: 'italic', marginTop: 8 },
+  addStepLink: { marginTop: 10 },
+  addStepLinkText: { fontSize: 12, fontWeight: '700', color: '#818cf8' },
+  addStepRow: { flexDirection: 'row', alignItems: 'center', gap: 6, marginTop: 10, flexWrap: 'wrap' },
+  addStepInput: { flex: 1, minWidth: 120, backgroundColor: '#0f172a', borderRadius: 8, borderWidth: 1, borderColor: '#334155', paddingVertical: 8, paddingHorizontal: 10, color: '#f1f5f9', fontSize: 13 },
+  addStepBtn: { backgroundColor: '#6366f1', borderRadius: 8, paddingVertical: 8, paddingHorizontal: 14 },
+  addStepBtnText: { color: '#fff', fontSize: 13, fontWeight: '800' },
+  addStepCancel: { paddingVertical: 8, paddingHorizontal: 6 },
+  addStepCancelText: { color: '#64748b', fontSize: 13, fontWeight: '700' },
   deleteBtn: { backgroundColor: '#7f1d1d', borderRadius: 14, paddingVertical: 14, alignItems: 'center', marginHorizontal: 20, marginBottom: 10, borderWidth: 1, borderColor: '#dc2626' },
   deleteBtnText: { color: '#fecaca', fontSize: 15, fontWeight: '800' },
   btnDisabled: { opacity: 0.5 },

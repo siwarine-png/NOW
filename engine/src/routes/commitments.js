@@ -104,6 +104,43 @@ router.post('/:id/skip-step', async (req, res) => {
   res.status(204).end();
 });
 
+// POST /commitments/:id/steps — append a new step to an existing project,
+// for when the initial checklist turns out to be incomplete instead of
+// scrapping the project (see AddPainPointScreen's finishProject, which
+// creates all of a project's ORIGINAL steps up front — this is the same
+// shape, just later). Mirrors that creation-time logic: first-ever step
+// becomes 'active' immediately (nothing to wait on), everything after that
+// queues 'paused' and only surfaces once advanceSiblingChain/skipToNextStep
+// reaches it.
+router.post('/:id/steps', async (req, res) => {
+  const { title } = req.body;
+  if (!title?.trim()) return res.status(400).json({ error: 'title required' });
+
+  const { data: parent } = await sb
+    .from('commitments').select('*, users!inner(app_id)').eq('id', req.params.id).single();
+  if (!parent || parent.users.app_id !== req.app_id) return res.status(404).json({ error: 'Not found' });
+  if (parent.parent_commitment_id) return res.status(400).json({ error: 'Not a project -- steps can only be added to a top-level project' });
+  if (['completed', 'abandoned'].includes(parent.status)) return res.status(400).json({ error: 'This project is already closed' });
+
+  const { data: activeSibling } = await sb
+    .from('commitments').select('id').eq('parent_commitment_id', parent.id).eq('status', 'active').maybeSingle();
+
+  const { data, error } = await sb
+    .from('commitments')
+    .insert({
+      user_id: parent.user_id, parent_commitment_id: parent.id,
+      title: title.trim(), next_action: title.trim(), identity_axis: parent.identity_axis,
+      cadence: 'once', priority_tier: 'normal', status: activeSibling ? 'paused' : 'active',
+    })
+    .select()
+    .single();
+
+  if (error) return res.status(500).json({ error: error.message });
+
+  log(req.app_id, parent.user_id, 'commitment.step_added', { commitment_id: data.id, parent_commitment_id: parent.id });
+  res.status(201).json(data);
+});
+
 // GET /commitments/suggestions — most commonly chosen titles across this app's
 // users once there's enough data (see top_commitment_titles). Empty array (not
 // an error) below the threshold, so the client silently falls back to statics.

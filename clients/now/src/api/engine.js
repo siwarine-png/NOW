@@ -161,6 +161,15 @@ export async function skipProjectStep(commitment_id) {
   return request('POST', `/commitments/${commitment_id}/skip-step`);
 }
 
+// Projects tab's "+ Add step" -- append a step to an already-existing
+// project instead of only ever being able to define the checklist at
+// creation time. Becomes the active step immediately if the project
+// currently has none (e.g. every original step is done and this is new
+// work), otherwise queues behind whatever's already running.
+export async function addProjectStep(project_id, title) {
+  return request('POST', `/commitments/${project_id}/steps`, { title });
+}
+
 // Engine v8 domain system — check in against an outcome_equivalent instead of
 // a commitment. No intervention_id: the domain path doesn't persist an
 // `interventions` row (see engine/routes/interventions.js).
