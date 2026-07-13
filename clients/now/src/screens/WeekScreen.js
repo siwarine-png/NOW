@@ -62,6 +62,55 @@ function formatDisplayTime(hhmm) {
   return `${h12}:${String(m).padStart(2, '0')} ${period}`;
 }
 
+function timeToMinutes(hhmm) {
+  const [h, m] = hhmm.split(':').map(Number);
+  return h * 60 + m;
+}
+
+function fmtHours(min) {
+  const h = min / 60;
+  return h % 1 === 0 ? `${h}h` : `${h.toFixed(1)}h`;
+}
+
+// Same wake_time/sleep_time framing as Today's TIME LEFT ring -- "the day"
+// worth showing a time-block breakdown for is the waking window, not
+// literal midnight-to-midnight, and the same overnight-bedtime wrap
+// handling as the engine's own wakingMinutes/isWithinWakingHours.
+function wakingWindow(user) {
+  const wake = timeToMinutes(user?.wake_time || '07:00');
+  const sleep = timeToMinutes(user?.sleep_time || '23:00');
+  const span = sleep > wake ? sleep - wake : (1440 - wake) + sleep;
+  return { wake, span };
+}
+
+// Maps a raw HH:MM clock time onto "minutes since wake," wrapping past
+// midnight the same way the span itself does, then clamps into [0, span]
+// -- a step that starts before wake or runs past sleep still shows, just
+// pinned to the visible edge instead of overflowing the bar.
+function normalizeToWaking(hhmm, wake, span) {
+  const min = timeToMinutes(hhmm);
+  const sinceWake = min >= wake ? min - wake : min + (1440 - wake);
+  return Math.max(0, Math.min(span, sinceWake));
+}
+
+// One horizontal bar's worth of blocks for a single day -- is_fixed items
+// (events, migration 026) get their own color from ordinary tasks/habits,
+// since "an appointment you attend" and "work you allocated yourself" read
+// as different kinds of time-not-free. Untimed items (no window_start/end)
+// don't occupy a slot at all -- there's no clock position to place them at.
+function dayTimeBlocks(items, wake, span) {
+  const timed = items.filter(c => c.window_start && c.window_end);
+  const blocks = timed.map(c => {
+    const start = normalizeToWaking(c.window_start, wake, span);
+    const end = Math.max(start, normalizeToWaking(c.window_end, wake, span));
+    return { id: c.id, fixed: !!c.is_fixed, startMin: start, minutes: end - start, leftPct: (start / span) * 100, widthPct: Math.max(((end - start) / span) * 100, 1) };
+  }).filter(b => b.minutes > 0 || b.widthPct > 0);
+  const allocatedMin = blocks.filter(b => !b.fixed).reduce((sum, b) => sum + b.minutes, 0);
+  const fixedMin = blocks.filter(b => b.fixed).reduce((sum, b) => sum + b.minutes, 0);
+  const freeMin = Math.max(0, span - allocatedMin - fixedMin);
+  return { blocks, allocatedMin, fixedMin, freeMin };
+}
+
 export default function WeekScreen({ user }) {
   const [loading, setLoading] = useState(true);
   const [axes, setAxes] = useState([]);
@@ -108,6 +157,8 @@ export default function WeekScreen({ user }) {
 
   if (loading) return <View style={s.center}><ActivityIndicator size="large" color="#6366f1" /></View>;
 
+  const { wake, span } = wakingWindow(user);
+
   return (
     <View style={s.screen}>
       <ScrollView contentContainerStyle={s.scroll}>
@@ -152,22 +203,45 @@ export default function WeekScreen({ user }) {
         )}
 
         <Text style={s.sectionLabel}>SCHEDULED THIS WEEK</Text>
+        <View style={s.legendRow}>
+          <View style={s.legendItem}><View style={[s.legendDot, s.blockFixed]} /><Text style={s.legendText}>Fixed</Text></View>
+          <View style={s.legendItem}><View style={[s.legendDot, s.blockAllocated]} /><Text style={s.legendText}>Allocated</Text></View>
+          <View style={s.legendItem}><View style={[s.legendDot, s.legendDotFree]} /><Text style={s.legendText}>Free</Text></View>
+        </View>
         <View style={s.section}>
-          {days.map(d => (
-            <View key={d.key} style={s.dayCard}>
-              <Text style={s.dayLabel}>{d.label}</Text>
-              {d.items.length === 0 ? (
-                <Text style={s.dayEmpty}>Nothing scheduled</Text>
-              ) : d.items.map(item => (
-                <View key={item.id} style={s.dayItem}>
-                  <Text style={s.dayItemTitle}>{item.title}</Text>
-                  {formatDisplayTime(item.window_start) && (
-                    <Text style={s.dayItemTime}>{formatDisplayTime(item.window_start)}</Text>
-                  )}
+          {days.map(d => {
+            const { blocks, allocatedMin, fixedMin, freeMin } = dayTimeBlocks(d.items, wake, span);
+            return (
+              <View key={d.key} style={s.dayCard}>
+                <Text style={s.dayLabel}>{d.label}</Text>
+
+                <View style={s.timeline}>
+                  {blocks.map(b => (
+                    <View
+                      key={b.id}
+                      style={[s.timelineBlock, b.fixed ? s.blockFixed : s.blockAllocated, { left: `${b.leftPct}%`, width: `${b.widthPct}%` }]}
+                    />
+                  ))}
                 </View>
-              ))}
-            </View>
-          ))}
+                <Text style={s.timelineSummary}>
+                  {fixedMin > 0 ? `${fmtHours(fixedMin)} fixed · ` : ''}
+                  {allocatedMin > 0 ? `${fmtHours(allocatedMin)} allocated · ` : ''}
+                  {fmtHours(freeMin)} free
+                </Text>
+
+                {d.items.length === 0 ? (
+                  <Text style={s.dayEmpty}>Nothing scheduled</Text>
+                ) : d.items.map(item => (
+                  <View key={item.id} style={s.dayItem}>
+                    <Text style={s.dayItemTitle}>{item.title}</Text>
+                    {formatDisplayTime(item.window_start) && (
+                      <Text style={s.dayItemTime}>{formatDisplayTime(item.window_start)}</Text>
+                    )}
+                  </View>
+                ))}
+              </View>
+            );
+          })}
         </View>
       </ScrollView>
     </View>
@@ -199,4 +273,14 @@ const s = StyleSheet.create({
   dayItem: { flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center', paddingVertical: 6, borderTopWidth: 1, borderTopColor: '#273449' },
   dayItemTitle: { fontSize: 14, color: '#f1f5f9', fontWeight: '600', flex: 1, marginRight: 8 },
   dayItemTime: { fontSize: 12, color: '#64748b', fontWeight: '700' },
+  legendRow: { flexDirection: 'row', gap: 16, marginBottom: 12 },
+  legendItem: { flexDirection: 'row', alignItems: 'center', gap: 5 },
+  legendDot: { width: 8, height: 8, borderRadius: 4 },
+  legendDotFree: { backgroundColor: '#0f172a', borderWidth: 1, borderColor: '#334155' },
+  legendText: { fontSize: 11, color: '#64748b', fontWeight: '700' },
+  timeline: { height: 14, borderRadius: 7, backgroundColor: '#0f172a', overflow: 'hidden', position: 'relative', marginBottom: 6 },
+  timelineBlock: { position: 'absolute', top: 0, bottom: 0 },
+  blockFixed: { backgroundColor: '#f59e0b' },
+  blockAllocated: { backgroundColor: '#6366f1' },
+  timelineSummary: { fontSize: 11, color: '#64748b', fontWeight: '600', marginBottom: 8 },
 });
