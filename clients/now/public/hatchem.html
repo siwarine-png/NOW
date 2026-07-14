@@ -193,6 +193,52 @@
     padding: 6px 0 6px 4px;
   }
   .capture-input-row input::placeholder { color: var(--text-3); }
+
+  /* Live repeat suggestions -- slides open once enough is typed to be a
+     real signal (not on the first keystroke), offers the closest existing
+     incubating thoughts to bump instead of typing the whole thing again.
+     Purely optional: ignoring it and hitting submit still works exactly
+     the same way (doCapture's own exact-match check on submit). */
+  .suggestions {
+    max-height: 0;
+    overflow: hidden;
+    opacity: 0;
+    display: flex;
+    flex-direction: column;
+    gap: 4px;
+    transition: max-height 0.22s ease, opacity 0.18s ease, margin-top 0.22s ease;
+  }
+  .suggestions.open { max-height: 220px; opacity: 1; margin-top: 2px; }
+  .suggestion-row {
+    display: flex;
+    align-items: center;
+    gap: 8px;
+    width: 100%;
+    text-align: left;
+    background: var(--surface-2);
+    border: 1px solid var(--border);
+    border-radius: 12px;
+    padding: 8px 10px;
+    cursor: pointer;
+    font-family: var(--font-body);
+  }
+  .suggestion-row:hover { border-color: var(--border-soft); }
+  .suggestion-dot { flex: 0 0 auto; width: 8px; height: 8px; border-radius: 50%; }
+  .suggestion-text {
+    flex: 1;
+    min-width: 0;
+    font-size: 13px;
+    color: var(--text-2);
+    white-space: nowrap;
+    overflow: hidden;
+    text-overflow: ellipsis;
+  }
+  .suggestion-count {
+    flex: 0 0 auto;
+    font-size: 10.5px;
+    font-weight: 800;
+    color: var(--text-3);
+  }
   .icon-btn {
     width: 44px; height: 44px;
     border-radius: 50%;
@@ -513,6 +559,7 @@
           <button class="icon-btn cancel" id="cancelCapture" aria-label="Cancel">✕</button>
           <button class="icon-btn submit" id="submitCapture" aria-label="Save" disabled>↑</button>
         </div>
+        <div class="suggestions" id="suggestions"></div>
       </div>
     </div>
     <div class="footer-links">
@@ -880,6 +927,14 @@
     categoryChips.appendChild(addChip);
   }
 
+  var suggestionsEl = document.getElementById('suggestions');
+  // "First word" threshold -- roughly 3 characters, not the very first
+  // keystroke. Triggering at 1 character would surface near-random noise
+  // (almost everything contains one letter); this waits for enough of a
+  // real word to make a match mean something.
+  var SUGGEST_MIN_CHARS = 3;
+  var MAX_SUGGESTIONS = 4;
+
   function openCapture() {
     fabBtn.style.display = 'none';
     capturePanel.classList.add('open');
@@ -887,16 +942,19 @@
     submitCapture.disabled = true;
     addingCategory = false;
     renderCategoryChips();
+    renderSuggestions('');
     captureInput.focus();
   }
   function closeCapture() {
     capturePanel.classList.remove('open');
     fabBtn.style.display = 'flex';
+    renderSuggestions('');
   }
   fabBtn.addEventListener('click', openCapture);
   cancelCapture.addEventListener('click', closeCapture);
   captureInput.addEventListener('input', function () {
     submitCapture.disabled = !captureInput.value.trim();
+    renderSuggestions(captureInput.value);
   });
   captureInput.addEventListener('keydown', function (e) {
     if (e.key === 'Enter') doCapture();
@@ -928,23 +986,70 @@
     return incubating().find(function (i) { return normalizeText(i.text) === norm; }) || null;
   }
 
+  // Same "bump, don't duplicate" behavior whether the repeat was detected
+  // by an exact match on submit (doCapture) or picked from the live
+  // suggestion list below -- one path, so the two can't drift apart.
+  function bumpRepeat(idea) {
+    idea.count = (idea.count || 1) + 1;
+    idea.timestamp = Date.now();
+    idea._spawnAt = performance.now();
+    saveIdeas(stripTransient(ideas));
+    layout();
+    if (reduceMotion) draw(performance.now());
+    closeCapture();
+    flashConfirm("You've had this thought before ✓");
+    renderFooterLinks();
+  }
+
+  // Live typeahead -- substring match (not just prefix) against
+  // incubating ideas, so "sushi" surfaces "order sushi for dinner"
+  // regardless of where in the thought it appears. Purely a shortcut:
+  // ignoring every suggestion and just hitting submit behaves identically
+  // (doCapture's own exact-match check runs either way).
+  function renderSuggestions(query) {
+    var norm = normalizeText(query);
+    if (norm.length < SUGGEST_MIN_CHARS) {
+      suggestionsEl.classList.remove('open');
+      suggestionsEl.innerHTML = '';
+      return;
+    }
+    var matches = incubating()
+      .filter(function (i) { return normalizeText(i.text).indexOf(norm) !== -1; })
+      .sort(function (a, b) { return (b.count || 1) - (a.count || 1) || b.timestamp - a.timestamp; })
+      .slice(0, MAX_SUGGESTIONS);
+
+    suggestionsEl.innerHTML = '';
+    if (!matches.length) { suggestionsEl.classList.remove('open'); return; }
+
+    matches.forEach(function (idea) {
+      var row = document.createElement('button');
+      row.className = 'suggestion-row';
+      var dot = document.createElement('span');
+      dot.className = 'suggestion-dot';
+      dot.style.background = categoryColor(catName(idea));
+      var text = document.createElement('span');
+      text.className = 'suggestion-text';
+      text.textContent = idea.text;
+      row.appendChild(dot);
+      row.appendChild(text);
+      if ((idea.count || 1) > 1) {
+        var count = document.createElement('span');
+        count.className = 'suggestion-count';
+        count.textContent = (idea.count || 1) + 'x';
+        row.appendChild(count);
+      }
+      row.addEventListener('click', function () { bumpRepeat(idea); });
+      suggestionsEl.appendChild(row);
+    });
+    suggestionsEl.classList.add('open');
+  }
+
   function doCapture() {
     var text = captureInput.value.trim();
     if (!text) return;
 
     var repeat = findRepeat(text);
-    if (repeat) {
-      repeat.count = (repeat.count || 1) + 1;
-      repeat.timestamp = Date.now();
-      repeat._spawnAt = performance.now();
-      saveIdeas(stripTransient(ideas));
-      layout();
-      if (reduceMotion) draw(performance.now());
-      closeCapture();
-      flashConfirm("You've had this thought before ✓");
-      renderFooterLinks();
-      return;
-    }
+    if (repeat) { bumpRepeat(repeat); return; }
 
     var idea = { id: uid(), text: text, timestamp: Date.now(), status: 'incubating', category: selectedCategory, count: 1 };
     idea._spawnAt = performance.now();
