@@ -245,7 +245,11 @@ export default function SettingsScreen({ onBack, onDeleteAccount, onSignOut }) {
         </Section>
 
         <Section label="Account">
-          {user && <Text style={s.detail}>User ID: {user.id?.slice(0,8)}…</Text>}
+          {/* Full id, not a truncated prefix -- this is what you'd need to
+              paste into a Supabase query to find this account's own rows
+              (e.g. resetting a daily_briefs row), and a shortened one just
+              means cross-referencing a full list to find the real match. */}
+          {user && <Text style={s.detail} selectable>User ID: {user.id}</Text>}
           {user && <Text style={s.detail}>Timezone: {user.timezone}</Text>}
           <TouchableOpacity style={s.secondaryBtn} onPress={confirmSignOut} disabled={signingOut}>
             {signingOut ? <ActivityIndicator color="#a5b4fc" /> : <Text style={s.secondaryBtnText}>Sign out</Text>}
