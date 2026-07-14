@@ -448,6 +448,19 @@ export default function TodayScreen({ user, onOpenNow, onSettings }) {
           </View>
         </View>
 
+        {/* Purely a reflection of this morning's stated focus -- deliberately
+            NOT fed into scoreRisk()/DO-THIS-NOW. Those two occasionally
+            disagreeing (you said X, but Y kept being what actually needed
+            attention) is useful information for Evening Debrief, not a bug
+            to resolve by letting a felt-in-the-moment pick override the
+            engine's own staleness/deadline/priority reasoning. */}
+        {dailyBrief?.planned_focus && (
+          <View style={s.focusBanner}>
+            <Text style={s.focusLabel}>🎯 TODAY'S FOCUS</Text>
+            <Text style={s.focusText} numberOfLines={2}>{dailyBrief.planned_focus}</Text>
+          </View>
+        )}
+
         {totalCount > 0 && (
           <>
             <View style={s.progressRow}>
@@ -534,6 +547,9 @@ const s = StyleSheet.create({
   timeCueTextCol: { flex: 1 },
   timeCueLabel: { fontSize: 9, fontWeight: '800', color: '#475569', letterSpacing: 0.6, marginBottom: 3 },
   timeCueSub: { fontSize: 12, color: '#94a3b8', fontWeight: '600' },
+  focusBanner: { backgroundColor: '#1e293b', borderRadius: 12, borderWidth: 1, borderColor: '#334155', borderStyle: 'dashed', paddingVertical: 10, paddingHorizontal: 12, marginBottom: 10 },
+  focusLabel: { fontSize: 9, fontWeight: '800', color: '#475569', letterSpacing: 0.6, marginBottom: 3 },
+  focusText: { fontSize: 14, color: '#cbd5e1', fontWeight: '700', lineHeight: 19 },
   progressRow: { flexDirection: 'row', gap: 4, marginTop: 8 },
   segment: { flex: 1, height: 6, borderRadius: 3, backgroundColor: '#1e293b' },
   segmentDone: { backgroundColor: '#34d399' },
