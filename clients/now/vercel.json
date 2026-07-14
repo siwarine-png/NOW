@@ -18,6 +18,10 @@
     {
       "source": "/manifest.json",
       "headers": [{ "key": "Cache-Control", "value": "no-cache, must-revalidate, s-maxage=0" }]
+    },
+    {
+      "source": "/hatchem.html",
+      "headers": [{ "key": "Cache-Control", "value": "no-cache, must-revalidate, s-maxage=0" }]
     }
   ]
 }

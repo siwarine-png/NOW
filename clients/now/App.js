@@ -22,6 +22,7 @@ import StuckScreen from './src/screens/StuckScreen';
 import IdentityScreen from './src/screens/IdentityScreen';
 import ProjectsScreen from './src/screens/ProjectsScreen';
 import WeekScreen from './src/screens/WeekScreen';
+import HatchScreen from './src/screens/HatchScreen';
 import BottomNav from './src/components/BottomNav';
 import { resolveParkingLotItem } from './src/api/engine';
 
@@ -129,6 +130,8 @@ function App() {
     );
   } else if (screen === 'week') {
     content = <WeekScreen user={user} />;
+  } else if (screen === 'hatch') {
+    content = <HatchScreen />;
   } else if (screen === 'identity') {
     content = <IdentityScreen user={user} onBack={() => setScreen('today')} />;
   } else {
@@ -145,6 +148,7 @@ function App() {
             STUCK_TAB_SCREENS.includes(screen) ? 'stuck'
             : PROJECTS_TAB_SCREENS.includes(screen) ? 'projects'
             : screen === 'week' ? 'week'
+            : screen === 'hatch' ? 'hatch'
             : screen === 'identity' ? 'identity'
             : NOW_TAB_SCREENS.includes(screen) ? 'now'
             : null
@@ -154,6 +158,7 @@ function App() {
           onProjects={() => setScreen('projects')}
           onIdentity={() => setScreen('identity')}
           onWeek={() => setScreen('week')}
+          onHatch={() => setScreen('hatch')}
         />
       </View>
     </>

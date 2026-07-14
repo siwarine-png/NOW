@@ -1,0 +1,954 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8" />
+<meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover" />
+<meta name="theme-color" content="#0f172a" />
+<title>HatchEm</title>
+<style>
+  :root {
+    --bg: #0f172a;
+    --surface: #1e293b;
+    --surface-2: #172236;
+    --border: #273449;
+    --border-soft: #334155;
+    --text: #f1f5f9;
+    --text-2: #94a3b8;
+    --text-3: #64748b;
+    --accent: #6366f1;
+    --accent-2: #818cf8;
+    --warm: #f59e0b;
+    --good: #34d399;
+    --font-round: ui-rounded, "SF Pro Rounded", "Segoe UI Rounded", system-ui, -apple-system, sans-serif;
+    --font-body: system-ui, -apple-system, "Segoe UI", sans-serif;
+  }
+
+  * { box-sizing: border-box; }
+  html, body { height: 100%; }
+  body {
+    margin: 0;
+    background: var(--bg);
+    color: var(--text);
+    font-family: var(--font-body);
+    overflow: hidden;
+    -webkit-tap-highlight-color: transparent;
+  }
+  @media (prefers-reduced-motion: reduce) {
+    * { animation-duration: 0.001ms !important; transition-duration: 0.001ms !important; }
+  }
+
+  .app {
+    position: relative;
+    height: 100dvh;
+    display: flex;
+    flex-direction: column;
+  }
+
+  /* ---------- Header ---------- */
+  .header {
+    flex: 0 0 auto;
+    padding: 22px 20px 4px;
+    text-align: center;
+  }
+  .wordmark {
+    font-family: var(--font-round);
+    font-weight: 800;
+    font-size: 22px;
+    letter-spacing: 0.2px;
+    color: var(--text);
+    display: inline-flex;
+    align-items: center;
+    gap: 8px;
+  }
+  .wordmark .egg { font-size: 20px; line-height: 1; }
+  .tagline {
+    margin-top: 4px;
+    font-size: 11px;
+    font-weight: 700;
+    letter-spacing: 0.6px;
+    text-transform: uppercase;
+    color: var(--text-3);
+  }
+
+  /* ---------- Stage (canvas incubator) ---------- */
+  .stage {
+    position: relative;
+    flex: 1 1 auto;
+    min-height: 0;
+  }
+  #field { display: block; width: 100%; height: 100%; touch-action: manipulation; }
+  .empty-hint {
+    position: absolute;
+    left: 50%; top: 46%;
+    transform: translate(-50%, -50%);
+    text-align: center;
+    color: var(--text-3);
+    font-size: 14px;
+    line-height: 1.5;
+    max-width: 240px;
+    pointer-events: none;
+    opacity: 0;
+    transition: opacity 0.4s ease;
+  }
+  .empty-hint.visible { opacity: 1; }
+
+  /* ---------- Footer / capture zone ---------- */
+  .footer {
+    flex: 0 0 auto;
+    padding: 0 20px 20px;
+    display: flex;
+    flex-direction: column;
+    align-items: center;
+    gap: 14px;
+  }
+
+  .capture-row {
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    width: 100%;
+    max-width: 420px;
+    min-height: 58px;
+  }
+
+  .fab {
+    width: 58px; height: 58px;
+    border-radius: 50%;
+    background: var(--accent);
+    border: none;
+    color: #fff;
+    font-size: 26px;
+    font-weight: 400;
+    display: flex; align-items: center; justify-content: center;
+    cursor: pointer;
+    box-shadow: 0 8px 24px -6px rgba(99, 102, 241, 0.55);
+    transition: transform 0.15s ease, box-shadow 0.15s ease;
+  }
+  .fab:hover { transform: translateY(-1px); box-shadow: 0 10px 28px -6px rgba(99, 102, 241, 0.65); }
+  .fab:active { transform: scale(0.94); }
+  .fab:focus-visible, .icon-btn:focus-visible, .action-btn:focus-visible, .text-link:focus-visible {
+    outline: 2px solid var(--accent-2);
+    outline-offset: 2px;
+  }
+
+  .capture-panel {
+    display: flex;
+    align-items: center;
+    gap: 8px;
+    width: 100%;
+    background: var(--surface);
+    border: 1px solid var(--border-soft);
+    border-radius: 29px;
+    padding: 6px 6px 6px 18px;
+    opacity: 0;
+    transform: scale(0.92);
+    transition: opacity 0.18s ease, transform 0.18s ease;
+  }
+  .capture-panel.open { opacity: 1; transform: scale(1); }
+  .capture-panel input {
+    flex: 1;
+    background: transparent;
+    border: none;
+    outline: none;
+    color: var(--text);
+    font-size: 15px;
+    font-family: var(--font-body);
+    min-width: 0;
+  }
+  .capture-panel input::placeholder { color: var(--text-3); }
+  .icon-btn {
+    width: 44px; height: 44px;
+    border-radius: 50%;
+    border: none;
+    display: flex; align-items: center; justify-content: center;
+    cursor: pointer;
+    flex: 0 0 auto;
+    font-size: 18px;
+  }
+  .icon-btn.submit { background: var(--accent); color: #fff; }
+  .icon-btn.submit:disabled { background: var(--border-soft); color: var(--text-3); cursor: default; }
+  .icon-btn.cancel { background: transparent; color: var(--text-3); }
+  .icon-btn.cancel:hover { color: var(--text-2); }
+
+  .confirm-flash {
+    position: absolute;
+    bottom: 92px; left: 50%;
+    transform: translateX(-50%) translateY(6px);
+    color: var(--good);
+    font-size: 13px;
+    font-weight: 700;
+    letter-spacing: 0.2px;
+    opacity: 0;
+    transition: opacity 0.3s ease, transform 0.3s ease;
+    pointer-events: none;
+    white-space: nowrap;
+  }
+  .confirm-flash.show { opacity: 1; transform: translateX(-50%) translateY(0); }
+
+  .footer-links {
+    display: flex;
+    gap: 22px;
+    align-items: center;
+  }
+  .text-link {
+    background: none; border: none;
+    color: var(--text-2);
+    font-size: 12.5px;
+    font-weight: 700;
+    cursor: pointer;
+    padding: 4px 2px;
+    font-family: var(--font-body);
+  }
+  .text-link:hover { color: var(--text); }
+  .text-link.quiet { color: var(--text-3); font-weight: 600; }
+  .text-link.quiet:hover { color: var(--text-2); }
+
+  /* ---------- Popover (view one idea) ---------- */
+  .sheet-backdrop {
+    position: fixed; inset: 0;
+    background: rgba(4, 8, 20, 0.6);
+    display: flex; align-items: flex-end; justify-content: center;
+    opacity: 0; pointer-events: none;
+    transition: opacity 0.2s ease;
+    z-index: 30;
+  }
+  .sheet-backdrop.open { opacity: 1; pointer-events: auto; }
+  .sheet {
+    width: 100%; max-width: 480px;
+    background: var(--surface);
+    border: 1px solid var(--border-soft);
+    border-bottom: none;
+    border-radius: 20px 20px 0 0;
+    padding: 22px 22px 28px;
+    transform: translateY(16px);
+    transition: transform 0.22s ease;
+  }
+  .sheet-backdrop.open .sheet { transform: translateY(0); }
+  .sheet-badge {
+    display: inline-block;
+    font-size: 11px;
+    font-weight: 800;
+    letter-spacing: 0.4px;
+    color: var(--warm);
+    background: rgba(245, 158, 11, 0.12);
+    padding: 3px 9px;
+    border-radius: 999px;
+    margin-bottom: 10px;
+  }
+  .sheet-text {
+    font-size: 18px;
+    line-height: 1.5;
+    color: var(--text);
+    font-weight: 600;
+    margin: 0 0 10px;
+  }
+  .sheet-meta {
+    font-size: 12.5px;
+    color: var(--text-3);
+    font-variant-numeric: tabular-nums;
+  }
+  .sheet-close {
+    margin-top: 18px;
+    width: 100%;
+    padding: 13px;
+    border-radius: 12px;
+    border: 1px solid var(--border-soft);
+    background: transparent;
+    color: var(--text-2);
+    font-size: 14px;
+    font-weight: 700;
+    cursor: pointer;
+    font-family: var(--font-body);
+  }
+  .sheet-close:hover { background: var(--surface-2); }
+
+  /* ---------- Check-in takeover ---------- */
+  .checkin {
+    position: fixed; inset: 0;
+    background: var(--bg);
+    z-index: 20;
+    display: flex;
+    flex-direction: column;
+    opacity: 0;
+    transform: translateY(8px);
+    pointer-events: none;
+    transition: opacity 0.22s ease, transform 0.22s ease;
+  }
+  .checkin.open { opacity: 1; transform: translateY(0); pointer-events: auto; }
+
+  .checkin-top {
+    flex: 0 0 auto;
+    padding: 20px 20px 0;
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+  }
+  .checkin-title {
+    font-family: var(--font-round);
+    font-weight: 800;
+    font-size: 15px;
+    color: var(--text-2);
+  }
+  .checkin-progress {
+    display: flex;
+    gap: 5px;
+  }
+  .checkin-dot { width: 6px; height: 6px; border-radius: 50%; background: var(--border-soft); }
+  .checkin-dot.done { background: var(--accent-2); }
+
+  .checkin-body {
+    flex: 1 1 auto;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    padding: 20px;
+    min-height: 0;
+  }
+  .checkin-card {
+    width: 100%;
+    max-width: 420px;
+    background: var(--surface);
+    border: 1px solid var(--border-soft);
+    border-radius: 22px;
+    padding: 30px 26px;
+    text-align: center;
+  }
+  .checkin-eyebrow {
+    font-size: 11px;
+    font-weight: 800;
+    letter-spacing: 0.6px;
+    text-transform: uppercase;
+    color: var(--text-3);
+    margin-bottom: 14px;
+  }
+  .checkin-idea {
+    font-size: 22px;
+    font-weight: 700;
+    line-height: 1.4;
+    color: var(--text);
+    margin: 0 0 10px;
+    text-wrap: balance;
+  }
+  .checkin-age {
+    font-size: 13px;
+    color: var(--text-3);
+    margin-bottom: 4px;
+  }
+
+  .checkin-done {
+    max-width: 340px;
+  }
+  .checkin-done .glyph { font-size: 40px; margin-bottom: 10px; }
+  .checkin-done h2 {
+    font-family: var(--font-round);
+    font-size: 19px;
+    color: var(--text);
+    margin: 0 0 8px;
+  }
+  .checkin-done p { color: var(--text-2); font-size: 14px; line-height: 1.6; margin: 0; }
+
+  .checkin-actions {
+    flex: 0 0 auto;
+    padding: 0 20px 26px;
+    display: flex;
+    flex-direction: column;
+    gap: 10px;
+    max-width: 420px;
+    width: 100%;
+    margin: 0 auto;
+  }
+  .action-btn {
+    width: 100%;
+    padding: 15px;
+    border-radius: 14px;
+    border: 1px solid var(--border-soft);
+    background: var(--surface);
+    color: var(--text);
+    font-size: 15px;
+    font-weight: 700;
+    cursor: pointer;
+    font-family: var(--font-body);
+    transition: background 0.15s ease, border-color 0.15s ease, transform 0.1s ease;
+  }
+  .action-btn:active { transform: scale(0.985); }
+  .action-btn.hatch { background: rgba(245, 158, 11, 0.12); border-color: rgba(245, 158, 11, 0.4); color: var(--warm); }
+  .action-btn.hatch:hover { background: rgba(245, 158, 11, 0.18); }
+  .action-btn.rest { color: var(--text-2); }
+  .action-btn.rest:hover { background: var(--surface-2); }
+  .action-btn.keep:hover { background: var(--surface-2); }
+  .action-btn.close-checkin {
+    background: var(--accent);
+    border-color: var(--accent);
+    color: #fff;
+  }
+  .action-btn.close-checkin:hover { background: #5457e5; }
+
+  /* ---------- Resting overlay ---------- */
+  .resting {
+    position: fixed; inset: 0;
+    background: rgba(4, 8, 20, 0.6);
+    z-index: 25;
+    display: flex; align-items: flex-end; justify-content: center;
+    opacity: 0; pointer-events: none;
+    transition: opacity 0.2s ease;
+  }
+  .resting.open { opacity: 1; pointer-events: auto; }
+  .resting-sheet {
+    width: 100%; max-width: 480px;
+    max-height: 72vh;
+    background: var(--surface);
+    border: 1px solid var(--border-soft);
+    border-bottom: none;
+    border-radius: 20px 20px 0 0;
+    padding: 20px 20px 22px;
+    display: flex;
+    flex-direction: column;
+    transform: translateY(16px);
+    transition: transform 0.22s ease;
+  }
+  .resting.open .resting-sheet { transform: translateY(0); }
+  .resting-header {
+    display: flex; align-items: center; justify-content: space-between;
+    margin-bottom: 14px;
+  }
+  .resting-header h2 {
+    font-family: var(--font-round);
+    font-size: 16px;
+    color: var(--text);
+    margin: 0;
+  }
+  .resting-list { overflow-y: auto; display: flex; flex-direction: column; gap: 8px; }
+  .resting-row {
+    display: flex; align-items: center; gap: 10px;
+    padding: 12px 14px;
+    background: var(--surface-2);
+    border: 1px solid var(--border);
+    border-radius: 12px;
+  }
+  .resting-row-text { flex: 1; font-size: 13.5px; color: var(--text-2); line-height: 1.4; }
+  .resting-row button {
+    flex: 0 0 auto;
+    background: none; border: 1px solid var(--border-soft);
+    color: var(--accent-2);
+    font-size: 12px; font-weight: 700;
+    padding: 7px 11px;
+    border-radius: 9px;
+    cursor: pointer;
+    font-family: var(--font-body);
+    white-space: nowrap;
+  }
+  .resting-row button:hover { background: var(--surface); }
+  .resting-empty { color: var(--text-3); font-size: 13px; text-align: center; padding: 20px 0; }
+</style>
+</head>
+<body>
+
+<div class="app">
+  <div class="header">
+    <div class="wordmark"><span class="egg">🥚</span>HatchEm</div>
+    <div class="tagline">part of the DayArc system</div>
+  </div>
+
+  <div class="stage">
+    <canvas id="field" aria-label="Your incubating ideas"></canvas>
+    <div class="empty-hint" id="emptyHint">Nothing incubating yet.<br>Capture your first idea below.</div>
+  </div>
+
+  <div class="footer">
+    <div class="confirm-flash" id="confirmFlash">Safe. ✓</div>
+    <div class="capture-row">
+      <button class="fab" id="fabBtn" aria-label="Capture a new idea" title="Capture a new idea">+</button>
+      <div class="capture-panel" id="capturePanel">
+        <input id="captureInput" type="text" placeholder="What's the idea?" maxlength="280" autocomplete="off" />
+        <button class="icon-btn cancel" id="cancelCapture" aria-label="Cancel">✕</button>
+        <button class="icon-btn submit" id="submitCapture" aria-label="Save idea" disabled>↑</button>
+      </div>
+    </div>
+    <div class="footer-links">
+      <button class="text-link" id="checkinBtn">Check on my ideas</button>
+      <button class="text-link quiet" id="restingBtn" style="display:none">Resting</button>
+      <button class="text-link quiet" id="exportBtn">Export</button>
+    </div>
+  </div>
+</div>
+
+<!-- View-one-idea popover -->
+<div class="sheet-backdrop" id="viewBackdrop">
+  <div class="sheet">
+    <div class="sheet-badge" id="viewBadge" style="display:none">🐣 Hatched</div>
+    <p class="sheet-text" id="viewText"></p>
+    <div class="sheet-meta" id="viewMeta"></div>
+    <button class="sheet-close" id="viewClose">Close</button>
+  </div>
+</div>
+
+<!-- Weekly check-in takeover -->
+<div class="checkin" id="checkin">
+  <div class="checkin-top">
+    <div class="checkin-title">Checking on your ideas</div>
+    <div class="checkin-progress" id="checkinProgress"></div>
+  </div>
+  <div class="checkin-body" id="checkinBody"></div>
+  <div class="checkin-actions" id="checkinActions"></div>
+</div>
+
+<!-- Resting overlay -->
+<div class="resting" id="restingOverlay">
+  <div class="resting-sheet">
+    <div class="resting-header">
+      <h2>Resting</h2>
+      <button class="icon-btn cancel" id="restingClose" aria-label="Close">✕</button>
+    </div>
+    <div class="resting-list" id="restingList"></div>
+  </div>
+</div>
+
+<script>
+(function () {
+  'use strict';
+
+  // ---------------------------------------------------------------------
+  // Storage -- idea content NEVER leaves the device. Single key, single
+  // array, {id, text, timestamp, status}. status: incubating|hatched|resting.
+  // (A future anonymous usage-event pipeline -- capture count, checkin-
+  // opened count, hatch count -- would hook in at the marked spots below,
+  // logging counts only, never idea text. Not built here: no backend
+  // exists for this standalone tool, and none should be added for MVP1.)
+  // ---------------------------------------------------------------------
+  var STORAGE_KEY = 'hatchem_ideas_v1';
+
+  function loadIdeas() {
+    try {
+      var raw = localStorage.getItem(STORAGE_KEY);
+      return raw ? JSON.parse(raw) : [];
+    } catch (e) { return []; }
+  }
+  function saveIdeas(list) {
+    try { localStorage.setItem(STORAGE_KEY, JSON.stringify(list)); } catch (e) { /* storage full/unavailable -- best effort */ }
+  }
+  function uid() {
+    if (window.crypto && crypto.randomUUID) return crypto.randomUUID();
+    return 'id-' + Date.now() + '-' + Math.random().toString(16).slice(2);
+  }
+
+  var ideas = loadIdeas();
+
+  function incubating() { return ideas.filter(function (i) { return i.status === 'incubating'; }); }
+  function hatchedList() { return ideas.filter(function (i) { return i.status === 'hatched'; }); }
+  function restingList() { return ideas.filter(function (i) { return i.status === 'resting'; }); }
+
+  // ---------------------------------------------------------------------
+  // Canvas incubator field -- a shallow arc, dots scattered organically
+  // above it. Newer ideas render larger/brighter; nothing ever shrinks
+  // away to nothing (still incubating = still fully present). Hatched
+  // ideas stay visible as a small amber burst -- a quiet trophy trail,
+  // not hidden the moment they're decided.
+  // ---------------------------------------------------------------------
+  var canvas = document.getElementById('field');
+  var ctx = canvas.getContext('2d');
+  var emptyHint = document.getElementById('emptyHint');
+  var dpr = Math.max(1, window.devicePixelRatio || 1);
+  var W = 0, H = 0;
+  var reduceMotion = window.matchMedia('(prefers-reduced-motion: reduce)').matches;
+  var t0 = performance.now();
+  var dots = []; // rendering model, rebuilt from `ideas` on layout()
+
+  function resize() {
+    var rect = canvas.parentElement.getBoundingClientRect();
+    W = rect.width; H = rect.height;
+    canvas.width = Math.round(W * dpr);
+    canvas.height = Math.round(H * dpr);
+    canvas.style.width = W + 'px';
+    canvas.style.height = H + 'px';
+    ctx.setTransform(dpr, 0, 0, dpr, 0, 0);
+    layout();
+  }
+
+  // Arc parameters: a gentle downward-opening curve sitting in the lower
+  // third of the stage, like a horizon -- dots rest ABOVE it, gathering
+  // more densely near the middle the way things naturally settle.
+  function arcY(x) {
+    var cx = W / 2;
+    var norm = (x - cx) / (W / 2 || 1);
+    var baseline = H * 0.72;
+    var depth = Math.min(H * 0.16, 90);
+    return baseline - depth * (1 - norm * norm);
+  }
+
+  // Deterministic pseudo-random per idea id, so a dot doesn't jump around
+  // on every re-layout/resize -- same idea, same spot, every time.
+  function hash(str) {
+    var h = 0;
+    for (var i = 0; i < str.length; i++) { h = (h << 5) - h + str.charCodeAt(i); h |= 0; }
+    return Math.abs(h);
+  }
+
+  function layout() {
+    var active = incubating().concat(hatchedList());
+    active.sort(function (a, b) { return a.timestamp - b.timestamp; });
+    var n = active.length;
+    var newestTs = n ? active[n - 1].timestamp : 0;
+    var oldestTs = n ? active[0].timestamp : 0;
+    var span = Math.max(1, newestTs - oldestTs);
+
+    dots = active.map(function (idea, i) {
+      var h = hash(idea.id);
+      var spreadX = 0.12 + ((h % 1000) / 1000) * 0.76; // 12%-88% width
+      var x = W * spreadX;
+      var jitterY = ((h >> 10) % 100) / 100; // 0..1
+      var y = arcY(x) - 14 - jitterY * (H * 0.30);
+      var recency = span > 0 ? (idea.timestamp - oldestTs) / span : 1;
+      var radius = idea.status === 'hatched' ? 5 : (5 + recency * 5.5);
+      var opacity = idea.status === 'hatched' ? 0.9 : (0.5 + recency * 0.5);
+      var spawnAt = idea._spawnAt || 0;
+      return { idea: idea, x: x, y: y, radius: radius, opacity: opacity, spawnAt: spawnAt, phase: (h % 628) / 100 };
+    });
+
+    emptyHint.classList.toggle('visible', n === 0);
+  }
+
+  function draw(now) {
+    ctx.clearRect(0, 0, W, H);
+
+    // faint arc line -- the "day arc" the ideas rest above
+    ctx.beginPath();
+    for (var x = 0; x <= W; x += 8) {
+      var y = arcY(x);
+      if (x === 0) ctx.moveTo(x, y); else ctx.lineTo(x, y);
+    }
+    ctx.strokeStyle = 'rgba(51, 65, 85, 0.55)';
+    ctx.lineWidth = 1.5;
+    ctx.stroke();
+
+    var elapsed = (now - t0) / 1000;
+    dots.forEach(function (d) {
+      var age = d.spawnAt ? (now - d.spawnAt) / 380 : 1;
+      var spawnScale = d.spawnAt ? Math.min(1, easeOutBack(Math.min(1, age))) : 1;
+      var pulse = reduceMotion ? 0 : Math.sin(elapsed * 0.9 + d.phase) * 0.06;
+      var r = Math.max(0.1, d.radius * spawnScale * (1 + pulse));
+      var isHatched = d.idea.status === 'hatched';
+
+      if (isHatched) {
+        drawBurst(d.x, d.y, r + 3, d.opacity * spawnScale);
+      } else {
+        ctx.beginPath();
+        var grad = ctx.createRadialGradient(d.x, d.y, 0, d.x, d.y, r * 2.4);
+        grad.addColorStop(0, 'rgba(99, 102, 241, ' + (0.35 * d.opacity * spawnScale) + ')');
+        grad.addColorStop(1, 'rgba(99, 102, 241, 0)');
+        ctx.fillStyle = grad;
+        ctx.arc(d.x, d.y, r * 2.4, 0, Math.PI * 2);
+        ctx.fill();
+
+        ctx.beginPath();
+        ctx.fillStyle = 'rgba(129, 140, 248, ' + d.opacity * spawnScale + ')';
+        ctx.arc(d.x, d.y, r, 0, Math.PI * 2);
+        ctx.fill();
+      }
+    });
+
+    if (!reduceMotion) requestAnimationFrame(draw);
+  }
+
+  function easeOutBack(x) {
+    var c1 = 1.70158, c3 = c1 + 1;
+    return 1 + c3 * Math.pow(x - 1, 3) + c1 * Math.pow(x - 1, 2);
+  }
+
+  function drawBurst(cx, cy, r, opacity) {
+    ctx.save();
+    ctx.translate(cx, cy);
+    ctx.fillStyle = 'rgba(245, 158, 11, ' + opacity + ')';
+    var spikes = 6;
+    ctx.beginPath();
+    for (var i = 0; i < spikes * 2; i++) {
+      var rad = i % 2 === 0 ? r : r * 0.45;
+      var ang = (Math.PI / spikes) * i - Math.PI / 2;
+      var px = Math.cos(ang) * rad, py = Math.sin(ang) * rad;
+      if (i === 0) ctx.moveTo(px, py); else ctx.lineTo(px, py);
+    }
+    ctx.closePath();
+    ctx.fill();
+    ctx.restore();
+  }
+
+  window.addEventListener('resize', resize);
+  resize();
+  requestAnimationFrame(draw);
+  if (reduceMotion) draw(performance.now()); // one static frame
+
+  // Tap-to-view: nearest dot within threshold
+  canvas.addEventListener('click', function (e) {
+    var rect = canvas.getBoundingClientRect();
+    var mx = e.clientX - rect.left, my = e.clientY - rect.top;
+    var best = null, bestDist = 26; // px hit-radius
+    dots.forEach(function (d) {
+      var dist = Math.hypot(d.x - mx, d.y - my);
+      if (dist < bestDist) { bestDist = dist; best = d; }
+    });
+    if (best) openView(best.idea);
+  });
+
+  // ---------------------------------------------------------------------
+  // Capture
+  // ---------------------------------------------------------------------
+  var fabBtn = document.getElementById('fabBtn');
+  var capturePanel = document.getElementById('capturePanel');
+  var captureInput = document.getElementById('captureInput');
+  var submitCapture = document.getElementById('submitCapture');
+  var cancelCapture = document.getElementById('cancelCapture');
+  var confirmFlash = document.getElementById('confirmFlash');
+
+  function openCapture() {
+    fabBtn.style.display = 'none';
+    capturePanel.classList.add('open');
+    captureInput.value = '';
+    submitCapture.disabled = true;
+    captureInput.focus();
+  }
+  function closeCapture() {
+    capturePanel.classList.remove('open');
+    fabBtn.style.display = 'flex';
+  }
+  fabBtn.addEventListener('click', openCapture);
+  cancelCapture.addEventListener('click', closeCapture);
+  captureInput.addEventListener('input', function () {
+    submitCapture.disabled = !captureInput.value.trim();
+  });
+  captureInput.addEventListener('keydown', function (e) {
+    if (e.key === 'Enter') doCapture();
+    if (e.key === 'Escape') closeCapture();
+  });
+  submitCapture.addEventListener('click', doCapture);
+
+  function doCapture() {
+    var text = captureInput.value.trim();
+    if (!text) return;
+    var idea = { id: uid(), text: text, timestamp: Date.now(), status: 'incubating' };
+    idea._spawnAt = performance.now();
+    ideas.push(idea);
+    saveIdeas(stripTransient(ideas));
+    // usage-event hook: capture used (count only) -- not implemented, see header note
+    layout();
+    if (reduceMotion) draw(performance.now());
+    closeCapture();
+    flashConfirm();
+    renderFooterLinks();
+  }
+
+  function stripTransient(list) {
+    return list.map(function (i) {
+      var copy = {}; for (var k in i) if (k !== '_spawnAt') copy[k] = i[k];
+      return copy;
+    });
+  }
+
+  function flashConfirm() {
+    confirmFlash.classList.add('show');
+    setTimeout(function () { confirmFlash.classList.remove('show'); }, 1400);
+  }
+
+  // ---------------------------------------------------------------------
+  // View-one-idea popover
+  // ---------------------------------------------------------------------
+  var viewBackdrop = document.getElementById('viewBackdrop');
+  var viewText = document.getElementById('viewText');
+  var viewMeta = document.getElementById('viewMeta');
+  var viewBadge = document.getElementById('viewBadge');
+  var viewClose = document.getElementById('viewClose');
+
+  function relTime(ts) {
+    var mins = Math.round((Date.now() - ts) / 60000);
+    if (mins < 1) return 'just now';
+    if (mins < 60) return mins + 'm ago';
+    var hrs = Math.round(mins / 60);
+    if (hrs < 24) return hrs + 'h ago';
+    var days = Math.round(hrs / 24);
+    return days + 'd ago';
+  }
+
+  function openView(idea) {
+    viewText.textContent = idea.text;
+    viewMeta.textContent = 'Captured ' + relTime(idea.timestamp);
+    viewBadge.style.display = idea.status === 'hatched' ? 'inline-block' : 'none';
+    viewBackdrop.classList.add('open');
+  }
+  function closeView() { viewBackdrop.classList.remove('open'); }
+  viewClose.addEventListener('click', closeView);
+  viewBackdrop.addEventListener('click', function (e) { if (e.target === viewBackdrop) closeView(); });
+
+  // ---------------------------------------------------------------------
+  // Weekly check-in -- one idea at a time, three actions, auto-advance.
+  // ---------------------------------------------------------------------
+  var checkinBtn = document.getElementById('checkinBtn');
+  var checkin = document.getElementById('checkin');
+  var checkinProgress = document.getElementById('checkinProgress');
+  var checkinBody = document.getElementById('checkinBody');
+  var checkinActions = document.getElementById('checkinActions');
+
+  var queue = [];
+  var qIndex = 0;
+
+  checkinBtn.addEventListener('click', function () {
+    queue = incubating().slice().sort(function (a, b) { return a.timestamp - b.timestamp; });
+    qIndex = 0;
+    // usage-event hook: checkin opened (count only) -- not implemented, see header note
+    if (!queue.length) {
+      showEmptyCheckinToast();
+      return;
+    }
+    checkin.classList.add('open');
+    renderCheckinStep();
+  });
+
+  function showEmptyCheckinToast() {
+    confirmFlash.textContent = "Nothing to check on right now.";
+    flashConfirm();
+    setTimeout(function () { confirmFlash.textContent = 'Safe. ✓'; }, 1500);
+  }
+
+  function ageDays(ts) {
+    var d = Math.floor((Date.now() - ts) / 86400000);
+    if (d <= 0) return 'today';
+    if (d === 1) return '1 day incubating';
+    return d + ' days incubating';
+  }
+
+  function renderCheckinStep() {
+    checkinProgress.innerHTML = '';
+    queue.forEach(function (_, i) {
+      var dot = document.createElement('div');
+      dot.className = 'checkin-dot' + (i < qIndex ? ' done' : '');
+      checkinProgress.appendChild(dot);
+    });
+
+    if (qIndex >= queue.length) {
+      checkinBody.innerHTML =
+        '<div class="checkin-card checkin-done">' +
+        '<div class="glyph">🌿</div>' +
+        '<h2>You\'re all caught up</h2>' +
+        '<p>Everything incubating has been checked on. The rest can keep resting until next time.</p>' +
+        '</div>';
+      checkinActions.innerHTML = '';
+      var closeBtn = document.createElement('button');
+      closeBtn.className = 'action-btn close-checkin';
+      closeBtn.textContent = 'Back to incubator';
+      closeBtn.addEventListener('click', closeCheckin);
+      checkinActions.appendChild(closeBtn);
+      return;
+    }
+
+    var idea = queue[qIndex];
+    checkinBody.innerHTML =
+      '<div class="checkin-card">' +
+      '<div class="checkin-eyebrow">Idea ' + (qIndex + 1) + ' of ' + queue.length + '</div>' +
+      '<p class="checkin-idea"></p>' +
+      '<div class="checkin-age"></div>' +
+      '</div>';
+    checkinBody.querySelector('.checkin-idea').textContent = idea.text;
+    checkinBody.querySelector('.checkin-age').textContent = ageDays(idea.timestamp);
+
+    checkinActions.innerHTML = '';
+    checkinActions.appendChild(makeActionBtn('keep', 'Keep incubating', function () { advance(null); }));
+    checkinActions.appendChild(makeActionBtn('hatch', '🐣 Hatch it', function () { advance('hatched'); }));
+    checkinActions.appendChild(makeActionBtn('rest', 'Let it rest', function () { advance('resting'); }));
+  }
+
+  function makeActionBtn(cls, label, handler) {
+    var b = document.createElement('button');
+    b.className = 'action-btn ' + cls;
+    b.textContent = label;
+    b.addEventListener('click', handler);
+    return b;
+  }
+
+  function advance(newStatus) {
+    var idea = queue[qIndex];
+    if (newStatus) {
+      var real = ideas.find(function (i) { return i.id === idea.id; });
+      if (real) real.status = newStatus;
+      saveIdeas(stripTransient(ideas));
+      // usage-event hook: idea hatched / let rest (count only) -- see header note
+    }
+    qIndex += 1;
+    layout();
+    renderCheckinStep();
+    renderFooterLinks();
+  }
+
+  function closeCheckin() {
+    checkin.classList.remove('open');
+    if (reduceMotion) draw(performance.now());
+  }
+
+  // ---------------------------------------------------------------------
+  // Resting overlay -- recoverable, never framed as loss.
+  // ---------------------------------------------------------------------
+  var restingBtn = document.getElementById('restingBtn');
+  var restingOverlay = document.getElementById('restingOverlay');
+  var restingClose = document.getElementById('restingClose');
+  var restingListEl = document.getElementById('restingList');
+
+  function renderFooterLinks() {
+    var n = restingList().length;
+    restingBtn.style.display = n ? 'inline-flex' : 'none';
+    restingBtn.textContent = 'Resting (' + n + ')';
+  }
+
+  restingBtn.addEventListener('click', function () {
+    renderRestingList();
+    restingOverlay.classList.add('open');
+  });
+  restingClose.addEventListener('click', function () { restingOverlay.classList.remove('open'); });
+  restingOverlay.addEventListener('click', function (e) { if (e.target === restingOverlay) restingOverlay.classList.remove('open'); });
+
+  function renderRestingList() {
+    var list = restingList().slice().sort(function (a, b) { return b.timestamp - a.timestamp; });
+    restingListEl.innerHTML = '';
+    if (!list.length) {
+      restingListEl.innerHTML = '<div class="resting-empty">Nothing resting right now.</div>';
+      return;
+    }
+    list.forEach(function (idea) {
+      var row = document.createElement('div');
+      row.className = 'resting-row';
+      var textEl = document.createElement('div');
+      textEl.className = 'resting-row-text';
+      textEl.textContent = idea.text;
+      var btn = document.createElement('button');
+      btn.textContent = 'Bring back';
+      btn.addEventListener('click', function () {
+        idea.status = 'incubating';
+        saveIdeas(stripTransient(ideas));
+        layout();
+        if (reduceMotion) draw(performance.now());
+        renderRestingList();
+        renderFooterLinks();
+      });
+      row.appendChild(textEl);
+      row.appendChild(btn);
+      restingListEl.appendChild(row);
+    });
+  }
+
+  // ---------------------------------------------------------------------
+  // Export -- the safety valve for local-only storage.
+  // ---------------------------------------------------------------------
+  document.getElementById('exportBtn').addEventListener('click', function () {
+    var blob = new Blob([JSON.stringify(stripTransient(ideas), null, 2)], { type: 'application/json' });
+    var url = URL.createObjectURL(blob);
+    var a = document.createElement('a');
+    var d = new Date();
+    var stamp = d.getFullYear() + '-' + String(d.getMonth() + 1).padStart(2, '0') + '-' + String(d.getDate()).padStart(2, '0');
+    a.href = url;
+    a.download = 'hatchem-ideas-' + stamp + '.json';
+    document.body.appendChild(a);
+    a.click();
+    document.body.removeChild(a);
+    setTimeout(function () { URL.revokeObjectURL(url); }, 1000);
+  });
+
+  renderFooterLinks();
+})();
+</script>
+</body>
+</html>
