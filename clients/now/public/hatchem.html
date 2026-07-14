@@ -133,19 +133,55 @@
 
   .capture-panel {
     display: flex;
-    align-items: center;
+    flex-direction: column;
     gap: 8px;
     width: 100%;
     background: var(--surface);
     border: 1px solid var(--border-soft);
-    border-radius: 29px;
-    padding: 6px 6px 6px 18px;
+    border-radius: 22px;
+    padding: 10px 8px 8px 14px;
     opacity: 0;
     transform: scale(0.92);
     transition: opacity 0.18s ease, transform 0.18s ease;
   }
   .capture-panel.open { opacity: 1; transform: scale(1); }
-  .capture-panel input {
+
+  /* Category chips -- picking one is optional friction: the last-used
+     category is pre-selected, so a fast capture never HAS to touch this
+     row. It's there for the moments the kind of thought matters. */
+  .category-chips {
+    display: flex;
+    gap: 6px;
+    overflow-x: auto;
+    padding: 1px 4px 1px 1px;
+    scrollbar-width: none;
+  }
+  .category-chips::-webkit-scrollbar { display: none; }
+  .cat-chip {
+    flex: 0 0 auto;
+    border: 1.5px solid var(--border-soft);
+    background: transparent;
+    color: var(--text-2);
+    font-size: 12px;
+    font-weight: 700;
+    padding: 6px 12px;
+    border-radius: 999px;
+    cursor: pointer;
+    font-family: var(--font-body);
+    white-space: nowrap;
+  }
+  .cat-chip.add {
+    color: var(--text-3);
+    border-style: dashed;
+  }
+  .cat-chip:hover { border-color: var(--text-3); }
+
+  .capture-input-row {
+    display: flex;
+    align-items: center;
+    gap: 8px;
+  }
+  .capture-input-row input {
     flex: 1;
     background: transparent;
     border: none;
@@ -154,8 +190,9 @@
     font-size: 15px;
     font-family: var(--font-body);
     min-width: 0;
+    padding: 6px 0 6px 4px;
   }
-  .capture-panel input::placeholder { color: var(--text-3); }
+  .capture-input-row input::placeholder { color: var(--text-3); }
   .icon-btn {
     width: 44px; height: 44px;
     border-radius: 50%;
@@ -224,6 +261,7 @@
     transition: transform 0.22s ease;
   }
   .sheet-backdrop.open .sheet { transform: translateY(0); }
+  .sheet-badge-row { display: flex; gap: 6px; margin-bottom: 10px; flex-wrap: wrap; }
   .sheet-badge {
     display: inline-block;
     font-size: 11px;
@@ -233,7 +271,16 @@
     background: rgba(245, 158, 11, 0.12);
     padding: 3px 9px;
     border-radius: 999px;
-    margin-bottom: 10px;
+  }
+  /* Category badge's color/background are set inline per-category (see
+     categoryColor() in JS) -- deterministic per name, not user-picked. */
+  .cat-badge {
+    display: inline-block;
+    font-size: 11px;
+    font-weight: 800;
+    letter-spacing: 0.2px;
+    padding: 3px 9px;
+    border-radius: 999px;
   }
   .sheet-text {
     font-size: 18px;
@@ -319,8 +366,9 @@
     letter-spacing: 0.6px;
     text-transform: uppercase;
     color: var(--text-3);
-    margin-bottom: 14px;
+    margin-bottom: 8px;
   }
+  .checkin-badges { display: flex; justify-content: center; margin-bottom: 14px; }
   .checkin-idea {
     font-size: 22px;
     font-weight: 700;
@@ -446,22 +494,25 @@
 <div class="app">
   <div class="header">
     <div class="wordmark"><span class="egg">🥚</span>HatchEm</div>
-    <div class="tagline">part of the DayArc system</div>
+    <div class="tagline">brain dump, part of the DayArc system</div>
   </div>
 
   <div class="stage">
     <canvas id="field" aria-label="Your incubating ideas"></canvas>
-    <div class="empty-hint" id="emptyHint">Nothing incubating yet.<br>Capture your first idea below.</div>
+    <div class="empty-hint" id="emptyHint">Nothing incubating yet.<br>Capture your first thought below.</div>
   </div>
 
   <div class="footer">
     <div class="confirm-flash" id="confirmFlash">Safe. ✓</div>
     <div class="capture-row">
-      <button class="fab" id="fabBtn" aria-label="Capture a new idea" title="Capture a new idea">+</button>
+      <button class="fab" id="fabBtn" aria-label="Capture a new thought" title="Capture a new thought">+</button>
       <div class="capture-panel" id="capturePanel">
-        <input id="captureInput" type="text" placeholder="What's the idea?" maxlength="280" autocomplete="off" />
-        <button class="icon-btn cancel" id="cancelCapture" aria-label="Cancel">✕</button>
-        <button class="icon-btn submit" id="submitCapture" aria-label="Save idea" disabled>↑</button>
+        <div class="category-chips" id="categoryChips"></div>
+        <div class="capture-input-row">
+          <input id="captureInput" type="text" placeholder="What's on your mind?" maxlength="280" autocomplete="off" />
+          <button class="icon-btn cancel" id="cancelCapture" aria-label="Cancel">✕</button>
+          <button class="icon-btn submit" id="submitCapture" aria-label="Save" disabled>↑</button>
+        </div>
       </div>
     </div>
     <div class="footer-links">
@@ -475,7 +526,10 @@
 <!-- View-one-idea popover -->
 <div class="sheet-backdrop" id="viewBackdrop">
   <div class="sheet">
-    <div class="sheet-badge" id="viewBadge" style="display:none">🐣 Hatched</div>
+    <div class="sheet-badge-row">
+      <span class="cat-badge" id="viewCatBadge"></span>
+      <span class="sheet-badge" id="viewBadge" style="display:none">🐣 Hatched</span>
+    </div>
     <p class="sheet-text" id="viewText"></p>
     <div class="sheet-meta" id="viewMeta"></div>
     <button class="sheet-close" id="viewClose">Close</button>
@@ -536,6 +590,47 @@
   function incubating() { return ideas.filter(function (i) { return i.status === 'incubating'; }); }
   function hatchedList() { return ideas.filter(function (i) { return i.status === 'hatched'; }); }
   function restingList() { return ideas.filter(function (i) { return i.status === 'resting'; }); }
+
+  // ---------------------------------------------------------------------
+  // Categories -- what KIND of thing is being dumped (an idea, a stray
+  // thought, a worry, whatever you add). Separate small storage key so
+  // ideas captured before this existed still load fine (idea.category
+  // just reads as undefined and falls back to catName(0) everywhere it's
+  // shown -- no migration needed for a client-side-only tool).
+  // ---------------------------------------------------------------------
+  var CATEGORY_KEY = 'hatchem_categories_v1';
+  var LAST_CATEGORY_KEY = 'hatchem_last_category_v1';
+  var DEFAULT_CATEGORIES = ['Idea', 'Random Thought', 'Worry'];
+
+  function loadCategories() {
+    try {
+      var raw = localStorage.getItem(CATEGORY_KEY);
+      var list = raw ? JSON.parse(raw) : null;
+      return (list && list.length) ? list : DEFAULT_CATEGORIES.slice();
+    } catch (e) { return DEFAULT_CATEGORIES.slice(); }
+  }
+  function saveCategories(list) {
+    try { localStorage.setItem(CATEGORY_KEY, JSON.stringify(list)); } catch (e) { /* best effort */ }
+  }
+  var categories = loadCategories();
+
+  function catName(idea) { return (idea && idea.category) || categories[0] || 'Idea'; }
+
+  // Deterministic per category name -- a newly-added category gets a
+  // consistent color the instant it's created, no separate color-picking
+  // step (that would be exactly the kind of friction this tool exists to
+  // avoid). Amber is reserved for "hatched" and deliberately excluded
+  // here so that signal never gets ambiguous with a category's own color.
+  var CATEGORY_PALETTE = ['#818cf8', '#f472b6', '#67e8f9', '#c084fc', '#86efac', '#fca5a5'];
+  function categoryColor(name) {
+    var h = 0;
+    for (var i = 0; i < name.length; i++) { h = (h << 5) - h + name.charCodeAt(i); h |= 0; }
+    return CATEGORY_PALETTE[Math.abs(h) % CATEGORY_PALETTE.length];
+  }
+  function hexToRgb(hex) {
+    var v = parseInt(hex.slice(1), 16);
+    return [(v >> 16) & 255, (v >> 8) & 255, v & 255];
+  }
 
   // ---------------------------------------------------------------------
   // Canvas incubator field -- a shallow arc, dots scattered organically
@@ -601,7 +696,8 @@
       var radius = idea.status === 'hatched' ? 5 : (5 + recency * 5.5);
       var opacity = idea.status === 'hatched' ? 0.9 : (0.5 + recency * 0.5);
       var spawnAt = idea._spawnAt || 0;
-      return { idea: idea, x: x, y: y, radius: radius, opacity: opacity, spawnAt: spawnAt, phase: (h % 628) / 100 };
+      var rgb = hexToRgb(categoryColor(catName(idea)));
+      return { idea: idea, x: x, y: y, radius: radius, opacity: opacity, spawnAt: spawnAt, phase: (h % 628) / 100, rgb: rgb };
     });
 
     emptyHint.classList.toggle('visible', n === 0);
@@ -631,16 +727,18 @@
       if (isHatched) {
         drawBurst(d.x, d.y, r + 3, d.opacity * spawnScale);
       } else {
+        var rgb = d.rgb || [129, 140, 248];
+        var rgbStr = rgb[0] + ', ' + rgb[1] + ', ' + rgb[2];
         ctx.beginPath();
         var grad = ctx.createRadialGradient(d.x, d.y, 0, d.x, d.y, r * 2.4);
-        grad.addColorStop(0, 'rgba(99, 102, 241, ' + (0.35 * d.opacity * spawnScale) + ')');
-        grad.addColorStop(1, 'rgba(99, 102, 241, 0)');
+        grad.addColorStop(0, 'rgba(' + rgbStr + ', ' + (0.35 * d.opacity * spawnScale) + ')');
+        grad.addColorStop(1, 'rgba(' + rgbStr + ', 0)');
         ctx.fillStyle = grad;
         ctx.arc(d.x, d.y, r * 2.4, 0, Math.PI * 2);
         ctx.fill();
 
         ctx.beginPath();
-        ctx.fillStyle = 'rgba(129, 140, 248, ' + d.opacity * spawnScale + ')';
+        ctx.fillStyle = 'rgba(' + rgbStr + ', ' + d.opacity * spawnScale + ')';
         ctx.arc(d.x, d.y, r, 0, Math.PI * 2);
         ctx.fill();
       }
@@ -697,12 +795,94 @@
   var submitCapture = document.getElementById('submitCapture');
   var cancelCapture = document.getElementById('cancelCapture');
   var confirmFlash = document.getElementById('confirmFlash');
+  var categoryChips = document.getElementById('categoryChips');
+
+  // Last-used category is the default every time capture opens -- picking
+  // a category is optional friction, not a required step, so a rapid dump
+  // of several things in the same category (the normal case) never needs
+  // to touch this row after the first pick.
+  var selectedCategory = (function () {
+    try { return localStorage.getItem(LAST_CATEGORY_KEY) || categories[0]; } catch (e) { return categories[0]; }
+  })();
+  var addingCategory = false;
+
+  function selectCategory(name) {
+    selectedCategory = name;
+    try { localStorage.setItem(LAST_CATEGORY_KEY, name); } catch (e) { /* best effort */ }
+    renderCategoryChips();
+  }
+
+  function renderCategoryChips() {
+    categoryChips.innerHTML = '';
+
+    if (addingCategory) {
+      var wrap = document.createElement('div');
+      wrap.style.cssText = 'display:flex;gap:6px;width:100%;align-items:center;';
+      var input = document.createElement('input');
+      input.type = 'text';
+      input.placeholder = 'New category name';
+      input.maxLength = 24;
+      input.style.cssText = 'flex:1;background:var(--surface-2);border:1px solid var(--border-soft);border-radius:999px;padding:6px 12px;color:var(--text);font-size:12px;font-family:var(--font-body);outline:none;min-width:0;';
+      var confirmBtn = document.createElement('button');
+      confirmBtn.textContent = '✓';
+      confirmBtn.className = 'cat-chip';
+      confirmBtn.style.cssText = 'color:var(--good);border-color:var(--good);flex:0 0 auto;';
+      var cancelBtn = document.createElement('button');
+      cancelBtn.textContent = '✕';
+      cancelBtn.className = 'cat-chip';
+      cancelBtn.style.cssText = 'flex:0 0 auto;';
+
+      function confirmAdd() {
+        var name = input.value.trim().slice(0, 24);
+        if (name && categories.indexOf(name) === -1) {
+          categories.push(name);
+          saveCategories(categories);
+        }
+        addingCategory = false;
+        if (name) selectCategory(name); else renderCategoryChips();
+      }
+      confirmBtn.addEventListener('click', confirmAdd);
+      input.addEventListener('keydown', function (e) {
+        if (e.key === 'Enter') confirmAdd();
+        if (e.key === 'Escape') { addingCategory = false; renderCategoryChips(); }
+      });
+      cancelBtn.addEventListener('click', function () { addingCategory = false; renderCategoryChips(); });
+
+      wrap.appendChild(input);
+      wrap.appendChild(confirmBtn);
+      wrap.appendChild(cancelBtn);
+      categoryChips.appendChild(wrap);
+      input.focus();
+      return;
+    }
+
+    categories.forEach(function (name) {
+      var chip = document.createElement('button');
+      chip.className = 'cat-chip';
+      chip.textContent = name;
+      var selected = name === selectedCategory;
+      var color = categoryColor(name);
+      chip.style.borderColor = selected ? color : '';
+      chip.style.color = selected ? color : '';
+      chip.style.background = selected ? 'rgba(' + hexToRgb(color).join(',') + ',0.12)' : '';
+      chip.addEventListener('click', function () { selectCategory(name); });
+      categoryChips.appendChild(chip);
+    });
+
+    var addChip = document.createElement('button');
+    addChip.className = 'cat-chip add';
+    addChip.textContent = '+ New';
+    addChip.addEventListener('click', function () { addingCategory = true; renderCategoryChips(); });
+    categoryChips.appendChild(addChip);
+  }
 
   function openCapture() {
     fabBtn.style.display = 'none';
     capturePanel.classList.add('open');
     captureInput.value = '';
     submitCapture.disabled = true;
+    addingCategory = false;
+    renderCategoryChips();
     captureInput.focus();
   }
   function closeCapture() {
@@ -723,7 +903,7 @@
   function doCapture() {
     var text = captureInput.value.trim();
     if (!text) return;
-    var idea = { id: uid(), text: text, timestamp: Date.now(), status: 'incubating' };
+    var idea = { id: uid(), text: text, timestamp: Date.now(), status: 'incubating', category: selectedCategory };
     idea._spawnAt = performance.now();
     ideas.push(idea);
     saveIdeas(stripTransient(ideas));
@@ -754,6 +934,7 @@
   var viewText = document.getElementById('viewText');
   var viewMeta = document.getElementById('viewMeta');
   var viewBadge = document.getElementById('viewBadge');
+  var viewCatBadge = document.getElementById('viewCatBadge');
   var viewClose = document.getElementById('viewClose');
 
   function relTime(ts) {
@@ -766,10 +947,19 @@
     return days + 'd ago';
   }
 
+  function setCatBadge(el, idea) {
+    var name = catName(idea);
+    var color = categoryColor(name);
+    el.textContent = name;
+    el.style.color = color;
+    el.style.background = 'rgba(' + hexToRgb(color).join(',') + ',0.14)';
+  }
+
   function openView(idea) {
     viewText.textContent = idea.text;
     viewMeta.textContent = 'Captured ' + relTime(idea.timestamp);
     viewBadge.style.display = idea.status === 'hatched' ? 'inline-block' : 'none';
+    setCatBadge(viewCatBadge, idea);
     viewBackdrop.classList.add('open');
   }
   function closeView() { viewBackdrop.classList.remove('open'); }
@@ -841,11 +1031,13 @@
     checkinBody.innerHTML =
       '<div class="checkin-card">' +
       '<div class="checkin-eyebrow">Idea ' + (qIndex + 1) + ' of ' + queue.length + '</div>' +
+      '<div class="checkin-badges"><span class="cat-badge" id="checkinCatBadge"></span></div>' +
       '<p class="checkin-idea"></p>' +
       '<div class="checkin-age"></div>' +
       '</div>';
     checkinBody.querySelector('.checkin-idea').textContent = idea.text;
     checkinBody.querySelector('.checkin-age').textContent = ageDays(idea.timestamp);
+    setCatBadge(checkinBody.querySelector('#checkinCatBadge'), idea);
 
     checkinActions.innerHTML = '';
     checkinActions.appendChild(makeActionBtn('keep', 'Keep incubating', function () { advance(null); }));
