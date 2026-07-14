@@ -108,43 +108,56 @@
     justify-content: center;
     width: 100%;
     max-width: 420px;
-    min-height: 58px;
+    min-height: 50px;
   }
 
   .fab {
-    width: 58px; height: 58px;
+    width: 50px; height: 50px;
     border-radius: 50%;
     background: var(--accent);
     border: none;
     color: #fff;
-    font-size: 26px;
+    font-size: 22px;
     font-weight: 400;
     display: flex; align-items: center; justify-content: center;
     cursor: pointer;
-    box-shadow: 0 8px 24px -6px rgba(99, 102, 241, 0.55);
+    box-shadow: 0 6px 18px -6px rgba(99, 102, 241, 0.55);
     transition: transform 0.15s ease, box-shadow 0.15s ease;
   }
-  .fab:hover { transform: translateY(-1px); box-shadow: 0 10px 28px -6px rgba(99, 102, 241, 0.65); }
+  .fab:hover { transform: translateY(-1px); box-shadow: 0 8px 22px -6px rgba(99, 102, 241, 0.65); }
   .fab:active { transform: scale(0.94); }
   .fab:focus-visible, .icon-btn:focus-visible, .action-btn:focus-visible, .text-link:focus-visible {
     outline: 2px solid var(--accent-2);
     outline-offset: 2px;
   }
 
+  /* Collapses to zero width when closed instead of just fading out --
+     it used to stay at full width in the flex row even while invisible
+     (opacity alone), which pushed the "+" off-center rather than ever
+     letting it sit as a true centerpiece. Zero width means the fab is the
+     row's only real content until this actually opens. */
   .capture-panel {
     display: flex;
     flex-direction: column;
     gap: 8px;
-    width: 100%;
+    width: 0;
+    overflow: hidden;
     background: var(--surface);
     border: 1px solid var(--border-soft);
     border-radius: 22px;
-    padding: 10px 8px 8px 14px;
+    padding: 10px 0;
     opacity: 0;
     transform: scale(0.92);
-    transition: opacity 0.18s ease, transform 0.18s ease;
+    pointer-events: none;
+    transition: width 0.2s ease, opacity 0.16s ease, transform 0.2s ease, padding 0.2s ease;
   }
-  .capture-panel.open { opacity: 1; transform: scale(1); }
+  .capture-panel.open {
+    width: 100%;
+    padding: 10px 8px 8px 14px;
+    opacity: 1;
+    transform: scale(1);
+    pointer-events: auto;
+  }
 
   /* Category chips -- picking one is optional friction: the last-used
      category is pre-selected, so a fast capture never HAS to touch this
