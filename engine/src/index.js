@@ -37,6 +37,10 @@ app.use('/v2', v2);
 // separate from the /v1 surface client apps consume.
 app.use('/admin', require('./routes/admin'));
 
+// Unauthenticated by design — see routes/public.js's own header comment.
+// Currently just HatchEm's opt-in AI analysis proxy.
+app.use('/public', require('./routes/public'));
+
 const PORT = process.env.PORT || 3000;
 app.listen(PORT, () => {
   console.log(`[engine] listening on :${PORT}`);

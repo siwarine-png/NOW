@@ -546,6 +546,71 @@
   }
   .resting-row button:hover { background: var(--surface); }
   .resting-empty { color: var(--text-3); font-size: 13px; text-align: center; padding: 20px 0; }
+
+  /* ---------- AI Analyze overlay -- opt-in, see aiOptIn in JS ---------- */
+  .ai-overlay {
+    position: fixed; inset: 0;
+    background: rgba(4, 8, 20, 0.6);
+    z-index: 26;
+    display: flex; align-items: flex-end; justify-content: center;
+    opacity: 0; pointer-events: none;
+    transition: opacity 0.2s ease;
+  }
+  .ai-overlay.open { opacity: 1; pointer-events: auto; }
+  .ai-sheet {
+    width: 100%; max-width: 480px;
+    max-height: 78vh;
+    background: var(--surface);
+    border: 1px solid var(--border-soft);
+    border-bottom: none;
+    border-radius: 20px 20px 0 0;
+    padding: 20px 20px 22px;
+    display: flex;
+    flex-direction: column;
+    transform: translateY(16px);
+    transition: transform 0.22s ease;
+  }
+  .ai-overlay.open .ai-sheet { transform: translateY(0); }
+  .ai-header { display: flex; align-items: center; justify-content: space-between; margin-bottom: 6px; }
+  .ai-header h2 { font-family: var(--font-round); font-size: 16px; color: var(--text); margin: 0; }
+  .ai-body { overflow-y: auto; }
+  .ai-consent-text { font-size: 13.5px; color: var(--text-2); line-height: 1.6; margin: 6px 0 18px; }
+  .ai-loading { text-align: center; color: var(--text-3); font-size: 13px; padding: 30px 0; }
+  .ai-note {
+    font-size: 13.5px; color: var(--text-2); line-height: 1.6;
+    background: var(--surface-2); border: 1px solid var(--border);
+    border-radius: 12px; padding: 12px 14px; margin-bottom: 16px;
+  }
+  .ai-section-label { font-size: 10.5px; font-weight: 800; letter-spacing: 0.6px; text-transform: uppercase; color: var(--text-3); margin-bottom: 8px; }
+  .ai-group { background: var(--surface-2); border: 1px solid var(--border); border-radius: 12px; padding: 12px 14px; margin-bottom: 10px; }
+  .ai-group-theme { font-size: 13px; font-weight: 800; color: var(--accent-2); margin-bottom: 6px; }
+  .ai-group-reason { font-size: 12px; color: var(--text-3); font-style: italic; margin-bottom: 8px; }
+  .ai-group-item { display: flex; align-items: center; gap: 7px; font-size: 13px; color: var(--text-2); padding: 3px 0; }
+  .ai-group-dot { flex: 0 0 auto; width: 6px; height: 6px; border-radius: 50%; }
+  .ai-merge-btn {
+    margin-top: 8px;
+    background: none; border: 1px solid var(--accent); color: var(--accent-2);
+    font-size: 12px; font-weight: 700; padding: 7px 12px; border-radius: 9px;
+    cursor: pointer; font-family: var(--font-body);
+  }
+  .ai-merge-btn:hover { background: rgba(99, 102, 241, 0.12); }
+  .ai-empty { color: var(--text-3); font-size: 13px; text-align: center; padding: 20px 0; }
+  .ai-error { color: #f87171; font-size: 13px; text-align: center; padding: 20px 0; line-height: 1.5; }
+  .ai-actions { display: flex; gap: 10px; margin-top: 4px; }
+  .ai-btn {
+    flex: 1; padding: 13px; border-radius: 12px; font-size: 14px; font-weight: 700;
+    cursor: pointer; font-family: var(--font-body); border: 1px solid var(--border-soft);
+    background: transparent; color: var(--text-2);
+  }
+  .ai-btn.primary { background: var(--accent); border-color: var(--accent); color: #fff; }
+  .ai-btn.primary:hover { background: #5457e5; }
+  .ai-btn:hover { background: var(--surface-2); }
+  .ai-disable-row { margin-top: 14px; text-align: center; }
+  .ai-disable-row button {
+    background: none; border: none; color: var(--text-3);
+    font-size: 11.5px; font-weight: 700; cursor: pointer; font-family: var(--font-body);
+  }
+  .ai-disable-row button:hover { color: var(--text-2); }
 </style>
 </head>
 <body>
@@ -577,6 +642,7 @@
     </div>
     <div class="footer-links">
       <button class="text-link" id="checkinBtn">Check on my ideas</button>
+      <button class="text-link quiet" id="analyzeBtn">✨ Analyze</button>
       <button class="text-link quiet" id="restingBtn" style="display:none">Resting</button>
       <button class="text-link quiet" id="exportBtn">Export</button>
     </div>
@@ -614,6 +680,17 @@
       <button class="icon-btn cancel" id="restingClose" aria-label="Close">✕</button>
     </div>
     <div class="resting-list" id="restingList"></div>
+  </div>
+</div>
+
+<!-- AI Analyze overlay -- opt-in, see aiOptIn in JS -->
+<div class="ai-overlay" id="aiOverlay">
+  <div class="ai-sheet">
+    <div class="ai-header">
+      <h2>✨ Analyze</h2>
+      <button class="icon-btn cancel" id="aiClose" aria-label="Close">✕</button>
+    </div>
+    <div class="ai-body" id="aiBody"></div>
   </div>
 </div>
 
@@ -1301,6 +1378,204 @@
     document.body.removeChild(a);
     setTimeout(function () { URL.revokeObjectURL(url); }, 1000);
   });
+
+  // ---------------------------------------------------------------------
+  // AI Analyze -- opt-in only. This is the ONE place captured text leaves
+  // the device at all, and only because the user explicitly turned it on;
+  // everything else about this tool stays local-only (see the storage
+  // header comment above). Proxies through DESIRED's existing engine
+  // (reuses its already-configured GROQ_API_KEY server-side -- this static
+  // page has no secret of its own to hold) via an unauthenticated route
+  // scoped narrowly to exactly this (engine/src/routes/public.js).
+  //
+  // Purely descriptive: clusters and possible duplicates, never a verdict
+  // on what to hatch or let rest -- that stays a human-only three-button
+  // decision in the weekly check-in, same as before this existed.
+  // ---------------------------------------------------------------------
+  var ENGINE_URL = 'https://engine-api-321521216754.asia-southeast1.run.app';
+  var AI_OPTIN_KEY = 'hatchem_ai_optin_v1';
+  var aiOverlay = document.getElementById('aiOverlay');
+  var aiBody = document.getElementById('aiBody');
+  var aiClose = document.getElementById('aiClose');
+  var analyzeBtn = document.getElementById('analyzeBtn');
+  var aiSnapshot = []; // {id, text, category} for the incubating set sent in the last request -- lets merge map response indexes back to real ideas without ever sending ids over the wire.
+
+  function aiOptedIn() {
+    try { return localStorage.getItem(AI_OPTIN_KEY) === 'true'; } catch (e) { return false; }
+  }
+  function setAiOptIn(val) {
+    try { localStorage.setItem(AI_OPTIN_KEY, val ? 'true' : 'false'); } catch (e) { /* best effort */ }
+  }
+
+  function openAiOverlay() {
+    aiOverlay.classList.add('open');
+    if (aiOptedIn()) runAnalysis(); else renderAiConsent();
+  }
+  function closeAiOverlay() { aiOverlay.classList.remove('open'); }
+  analyzeBtn.addEventListener('click', openAiOverlay);
+  aiClose.addEventListener('click', closeAiOverlay);
+  aiOverlay.addEventListener('click', function (e) { if (e.target === aiOverlay) closeAiOverlay(); });
+
+  function renderAiConsent() {
+    aiBody.innerHTML = '';
+    var p = document.createElement('p');
+    p.className = 'ai-consent-text';
+    p.textContent = "HatchEm normally never sends anything off this device. Turning this on sends your currently-incubating thoughts' text to Groq (an AI provider) for analysis -- looking for common themes and possible duplicates worded differently. Nothing is stored server-side, and you can turn this back off anytime.";
+    aiBody.appendChild(p);
+
+    var actions = document.createElement('div');
+    actions.className = 'ai-actions';
+    var cancelBtn = document.createElement('button');
+    cancelBtn.className = 'ai-btn';
+    cancelBtn.textContent = 'Not now';
+    cancelBtn.addEventListener('click', closeAiOverlay);
+    var enableBtn = document.createElement('button');
+    enableBtn.className = 'ai-btn primary';
+    enableBtn.textContent = 'Enable & Analyze';
+    enableBtn.addEventListener('click', function () { setAiOptIn(true); runAnalysis(); });
+    actions.appendChild(cancelBtn);
+    actions.appendChild(enableBtn);
+    aiBody.appendChild(actions);
+  }
+
+  function renderAiDisableRow() {
+    var row = document.createElement('div');
+    row.className = 'ai-disable-row';
+    var btn = document.createElement('button');
+    btn.textContent = 'Turn off AI analysis';
+    btn.addEventListener('click', function () { setAiOptIn(false); closeAiOverlay(); });
+    row.appendChild(btn);
+    return row;
+  }
+
+  async function runAnalysis() {
+    var pool = incubating();
+    aiSnapshot = pool.map(function (i) { return { id: i.id, text: i.text, category: catName(i) }; });
+
+    aiBody.innerHTML = '<div class="ai-loading">Looking for patterns…</div>';
+
+    if (!aiSnapshot.length) {
+      aiBody.innerHTML = '<div class="ai-empty">Nothing incubating to analyze yet.</div>';
+      aiBody.appendChild(renderAiDisableRow());
+      return;
+    }
+
+    try {
+      var resp = await fetch(ENGINE_URL + '/public/hatchem/analyze', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ items: aiSnapshot.map(function (i) { return { text: i.text, category: i.category }; }) }),
+      });
+      var data = await resp.json();
+      if (!resp.ok) throw new Error(data.error || ('Request failed: ' + resp.status));
+      renderAiResults(data);
+    } catch (e) {
+      aiBody.innerHTML = '';
+      var err = document.createElement('div');
+      err.className = 'ai-error';
+      err.textContent = "Couldn't reach the analyzer -- try again in a moment.";
+      aiBody.appendChild(err);
+      aiBody.appendChild(renderAiDisableRow());
+    }
+  }
+
+  function aiItemRow(idx) {
+    var item = aiSnapshot[idx];
+    var row = document.createElement('div');
+    row.className = 'ai-group-item';
+    var dot = document.createElement('span');
+    dot.className = 'ai-group-dot';
+    dot.style.background = categoryColor(item ? item.category : categories[0]);
+    var text = document.createElement('span');
+    text.textContent = item ? item.text : '(removed)';
+    row.appendChild(dot);
+    row.appendChild(text);
+    return row;
+  }
+
+  function renderAiResults(data) {
+    aiBody.innerHTML = '';
+
+    if (data.note) {
+      var note = document.createElement('div');
+      note.className = 'ai-note';
+      note.textContent = data.note;
+      aiBody.appendChild(note);
+    }
+
+    if (data.clusters && data.clusters.length) {
+      var clusterLabel = document.createElement('div');
+      clusterLabel.className = 'ai-section-label';
+      clusterLabel.textContent = 'THEMES';
+      aiBody.appendChild(clusterLabel);
+      data.clusters.forEach(function (c) {
+        var group = document.createElement('div');
+        group.className = 'ai-group';
+        var theme = document.createElement('div');
+        theme.className = 'ai-group-theme';
+        theme.textContent = c.theme;
+        group.appendChild(theme);
+        c.idea_indexes.forEach(function (idx) { group.appendChild(aiItemRow(idx)); });
+        aiBody.appendChild(group);
+      });
+    }
+
+    if (data.duplicates && data.duplicates.length) {
+      var dupLabel = document.createElement('div');
+      dupLabel.className = 'ai-section-label';
+      dupLabel.textContent = 'POSSIBLE DUPLICATES';
+      aiBody.appendChild(dupLabel);
+      data.duplicates.forEach(function (d) {
+        var group = document.createElement('div');
+        group.className = 'ai-group';
+        var reason = document.createElement('div');
+        reason.className = 'ai-group-reason';
+        reason.textContent = d.reason;
+        group.appendChild(reason);
+        d.idea_indexes.forEach(function (idx) { group.appendChild(aiItemRow(idx)); });
+        var mergeBtn = document.createElement('button');
+        mergeBtn.className = 'ai-merge-btn';
+        mergeBtn.textContent = 'Merge these';
+        mergeBtn.addEventListener('click', function () { mergeSuggested(d.idea_indexes); });
+        group.appendChild(mergeBtn);
+        aiBody.appendChild(group);
+      });
+    }
+
+    if ((!data.clusters || !data.clusters.length) && (!data.duplicates || !data.duplicates.length) && !data.note) {
+      var empty = document.createElement('div');
+      empty.className = 'ai-empty';
+      empty.textContent = "Nothing stood out this time -- no repeated themes or duplicates found.";
+      aiBody.appendChild(empty);
+    }
+
+    aiBody.appendChild(renderAiDisableRow());
+  }
+
+  // Keeps whichever idea in the group already has the highest count (the
+  // most-established one), sums the rest into it, and drops the others --
+  // same "bump, don't duplicate" spirit as findRepeat's exact-match merge,
+  // just triggered by the AI's fuzzier read instead of an exact string match.
+  function mergeSuggested(indexList) {
+    var targets = indexList.map(function (i) { return aiSnapshot[i]; }).filter(Boolean)
+      .map(function (snap) { return ideas.find(function (i) { return i.id === snap.id; }); })
+      .filter(Boolean);
+    if (targets.length < 2) return;
+
+    var keep = targets.reduce(function (a, b) { return (a.count || 1) >= (b.count || 1) ? a : b; });
+    var totalCount = targets.reduce(function (sum, i) { return sum + (i.count || 1); }, 0);
+    keep.count = totalCount;
+    keep.timestamp = Date.now();
+    keep._spawnAt = performance.now();
+
+    var dropIds = targets.filter(function (i) { return i !== keep; }).map(function (i) { return i.id; });
+    ideas = ideas.filter(function (i) { return dropIds.indexOf(i.id) === -1; });
+    saveIdeas(stripTransient(ideas));
+    layout();
+    if (reduceMotion) draw(performance.now());
+    closeAiOverlay();
+    flashConfirm('Merged ✓');
+  }
 
   renderFooterLinks();
 })();

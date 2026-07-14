@@ -72,4 +72,111 @@ async function classifyActivity(freeText) {
   return { axis: parsed.axis, is_fixed: parsed.is_fixed };
 }
 
-module.exports = { classifyActivity };
+// HatchEm's opt-in "Analyze" -- the second deliberate, narrow exception to
+// "no ML/LLM in the core loop." Purely descriptive/read-only: it looks at
+// a batch of currently-incubating thoughts and surfaces thematic clusters
+// plus possible semantic duplicates (the fuzzy-matching findRepeat() in
+// hatchem.html can't do with exact-text matching alone -- see its own
+// header comment). It never decides anything on the user's behalf --
+// hatch/rest stays a human-only three-button decision in the weekly
+// check-in, same as before. Deliberately excluded from the schema:
+// anything resembling a recommendation ("hatch this," "this is your best
+// idea") -- descriptive observations only, consistent with the rest of
+// this app never handing down a verdict.
+//
+// This is the one place HatchEm's captured text leaves the device at all,
+// and only because the user explicitly opted in (see hatchem.html's
+// aiOptIn flag, off by default) -- everything else about HatchEm stays
+// local-only.
+const ANALYZE_MODEL = 'openai/gpt-oss-20b';
+
+async function analyzeThoughts(items) {
+  const apiKey = process.env.GROQ_API_KEY;
+  if (!apiKey) throw new Error('GROQ_API_KEY not configured');
+  if (!Array.isArray(items) || !items.length) throw new Error('items required');
+
+  const numbered = items
+    .map((it, i) => `${i}. [${it.category || 'Idea'}] ${String(it.text || '').slice(0, 280)}`)
+    .join('\n');
+
+  const resp = await fetch('https://api.groq.com/openai/v1/chat/completions', {
+    method: 'POST',
+    headers: {
+      'Content-Type': 'application/json',
+      Authorization: `Bearer ${apiKey}`,
+    },
+    body: JSON.stringify({
+      model: ANALYZE_MODEL,
+      temperature: 0.2,
+      messages: [
+        {
+          role: 'system',
+          content:
+            'You are looking at a numbered list of short thoughts someone captured in a brain-dump tool -- a mix of ' +
+            'ideas, random thoughts, and worries. Find two things, purely descriptively, never prescriptively: ' +
+            '(1) clusters -- groups of 2 or more thoughts that relate to the same underlying theme or project, with a ' +
+            'short (under 6 words) neutral theme label; (2) duplicates -- pairs or groups of thoughts that are likely ' +
+            'the SAME underlying thought worded differently (not just the same category), with a short reason. ' +
+            'Reference thoughts ONLY by their number. Never recommend what to do with any thought (never say something ' +
+            'should be hatched, kept, or dropped) -- observations only. Also write one short (under 200 characters) ' +
+            'overall note about the pattern across all of them, or an empty string if nothing stands out. If there are ' +
+            'no clusters or no duplicates, return empty arrays for those -- do not force a match that isn\'t there.',
+        },
+        { role: 'user', content: numbered },
+      ],
+      response_format: {
+        type: 'json_schema',
+        json_schema: {
+          name: 'thought_analysis',
+          schema: {
+            type: 'object',
+            properties: {
+              clusters: {
+                type: 'array',
+                items: {
+                  type: 'object',
+                  properties: {
+                    theme: { type: 'string' },
+                    idea_indexes: { type: 'array', items: { type: 'integer' } },
+                  },
+                  required: ['theme', 'idea_indexes'],
+                  additionalProperties: false,
+                },
+              },
+              duplicates: {
+                type: 'array',
+                items: {
+                  type: 'object',
+                  properties: {
+                    idea_indexes: { type: 'array', items: { type: 'integer' } },
+                    reason: { type: 'string' },
+                  },
+                  required: ['idea_indexes', 'reason'],
+                  additionalProperties: false,
+                },
+              },
+              note: { type: 'string' },
+            },
+            required: ['clusters', 'duplicates', 'note'],
+            additionalProperties: false,
+          },
+        },
+      },
+    }),
+  });
+
+  if (!resp.ok) throw new Error(`Groq request failed: ${resp.status}`);
+  const data = await resp.json();
+  const parsed = JSON.parse(data.choices[0].message.content);
+
+  var n = items.length;
+  function validIndexes(arr) {
+    return Array.isArray(arr) && arr.every(function (i) { return Number.isInteger(i) && i >= 0 && i < n; });
+  }
+  var clusters = (parsed.clusters || []).filter(function (c) { return validIndexes(c.idea_indexes) && c.idea_indexes.length >= 2; });
+  var duplicates = (parsed.duplicates || []).filter(function (d) { return validIndexes(d.idea_indexes) && d.idea_indexes.length >= 2; });
+
+  return { clusters: clusters, duplicates: duplicates, note: parsed.note || '' };
+}
+
+module.exports = { classifyActivity, analyzeThoughts };
