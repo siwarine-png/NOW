@@ -265,6 +265,24 @@
   .icon-btn.submit:disabled { background: var(--border-soft); color: var(--text-3); cursor: default; }
   .icon-btn.cancel { background: transparent; color: var(--text-3); }
   .icon-btn.cancel:hover { color: var(--text-2); }
+  .icon-btn.mic { background: transparent; color: var(--text-2); font-size: 17px; }
+  .icon-btn.mic:hover { color: var(--text); }
+  .icon-btn.mic.listening {
+    background: rgba(248, 113, 113, 0.15);
+    color: #f87171;
+    animation: mic-pulse 1.3s ease-in-out infinite;
+  }
+  @keyframes mic-pulse {
+    0%, 100% { box-shadow: 0 0 0 0 rgba(248, 113, 113, 0.35); }
+    50% { box-shadow: 0 0 0 7px rgba(248, 113, 113, 0); }
+  }
+  .mic-status {
+    text-align: center;
+    font-size: 12px;
+    font-weight: 700;
+    color: #f87171;
+    margin-top: 2px;
+  }
 
   .confirm-flash {
     position: absolute;
@@ -634,9 +652,11 @@
         <div class="category-chips" id="categoryChips"></div>
         <div class="capture-input-row">
           <input id="captureInput" type="text" placeholder="What's on your mind?" maxlength="280" autocomplete="off" />
+          <button class="icon-btn mic" id="micBtn" aria-label="Speak your thought" title="Speak your thought" style="display:none">🎤</button>
           <button class="icon-btn cancel" id="cancelCapture" aria-label="Cancel">✕</button>
           <button class="icon-btn submit" id="submitCapture" aria-label="Save" disabled>↑</button>
         </div>
+        <div class="mic-status" id="micStatus" style="display:none">Listening…</div>
         <div class="suggestions" id="suggestions"></div>
       </div>
     </div>
@@ -1039,6 +1059,7 @@
     capturePanel.classList.remove('open');
     fabBtn.style.display = 'flex';
     renderSuggestions('');
+    if (listening && recognition) recognition.stop();
   }
   fabBtn.addEventListener('click', openCapture);
   cancelCapture.addEventListener('click', closeCapture);
@@ -1158,6 +1179,63 @@
       var copy = {}; for (var k in i) if (k !== '_spawnAt') copy[k] = i[k];
       return copy;
     });
+  }
+
+  // ---------------------------------------------------------------------
+  // Voice capture -- the browser's own SpeechRecognition, not a server
+  // call of ours (no new backend, no new key to manage; the recognition
+  // itself is handled by the browser/OS, same as it is for any other page
+  // using this standard Web API). The mic button only ever appears if the
+  // browser actually supports it -- feature-detected once at load, never
+  // shown as a button that would just fail on tap. One utterance per tap
+  // (continuous=false): a single held-down thought, not an open mic left
+  // running, matching this tool's own "one thing captured at a time" spirit.
+  // ---------------------------------------------------------------------
+  var micBtn = document.getElementById('micBtn');
+  var micStatus = document.getElementById('micStatus');
+  var SpeechRecognitionCtor = window.SpeechRecognition || window.webkitSpeechRecognition;
+  var recognition = null;
+  var listening = false;
+  var micBaseText = '';
+
+  if (SpeechRecognitionCtor) {
+    micBtn.style.display = 'flex';
+    recognition = new SpeechRecognitionCtor();
+    recognition.continuous = false;
+    recognition.interimResults = true;
+    recognition.lang = navigator.language || 'en-US';
+
+    recognition.onresult = function (e) {
+      var transcript = '';
+      for (var i = 0; i < e.results.length; i++) transcript += e.results[i][0].transcript;
+      captureInput.value = (micBaseText ? micBaseText + ' ' : '') + transcript;
+      submitCapture.disabled = !captureInput.value.trim();
+      renderSuggestions(captureInput.value);
+    };
+    recognition.onerror = function (e) {
+      stopListening();
+      if (e.error === 'not-allowed' || e.error === 'service-not-allowed') {
+        flashConfirm("Mic access blocked -- check your browser's site permissions.");
+      } else if (e.error !== 'no-speech' && e.error !== 'aborted') {
+        flashConfirm("Didn't catch that -- try again.");
+      }
+    };
+    recognition.onend = function () { stopListening(); };
+
+    micBtn.addEventListener('click', function () {
+      if (listening) { recognition.stop(); return; }
+      micBaseText = captureInput.value.trim();
+      listening = true;
+      micBtn.classList.add('listening');
+      micStatus.style.display = 'block';
+      try { recognition.start(); } catch (e) { stopListening(); }
+    });
+  }
+
+  function stopListening() {
+    listening = false;
+    micBtn.classList.remove('listening');
+    micStatus.style.display = 'none';
   }
 
   function flashConfirm(message) {
