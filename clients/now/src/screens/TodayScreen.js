@@ -243,6 +243,12 @@ export default function TodayScreen({ user, onOpenNow, onSettings }) {
   const [checkinDue, setCheckinDue] = useState(false);
   const [staleProject, setStaleProject] = useState(null);
   const [dailyBrief, setDailyBrief] = useState(null);
+  // dailyBrief resets to null on every remount (switching tabs unmounts
+  // this screen) -- without this flag, morningBriefDue/eveningDebriefDue
+  // would read "not completed" from that null default and flash the modal
+  // on for a moment every time, even on a day it's already been answered,
+  // until the real fetch below resolves.
+  const [dailyBriefLoaded, setDailyBriefLoaded] = useState(false);
   // Forces a re-render every 30s purely so the two countdown pills tick
   // down on their own -- schedule itself only reloads on AppState changes,
   // which would otherwise leave "in 10m" frozen at whatever it read on load.
@@ -285,6 +291,7 @@ export default function TodayScreen({ user, onOpenNow, onSettings }) {
       const { brief } = await getDailyBriefToday(user.id);
       setDailyBrief(brief);
     } catch { /* best-effort -- worst case a prompt shows again next open */ }
+    finally { setDailyBriefLoaded(true); }
   }, [user]);
 
   useEffect(() => { load(); }, [load]);
@@ -389,8 +396,8 @@ export default function TodayScreen({ user, onOpenNow, onSettings }) {
   // past it, in case the app's opened late) -- same "close enough to matter"
   // spirit as NEXT's own 60min horizon above.
   const EVENING_WINDOW_MIN = 120;
-  const morningBriefDue = dayW.state === 'awake' && !dailyBrief?.morning_completed_at;
-  const eveningDebriefDue = !dailyBrief?.evening_completed_at &&
+  const morningBriefDue = dailyBriefLoaded && dayW.state === 'awake' && !dailyBrief?.morning_completed_at;
+  const eveningDebriefDue = dailyBriefLoaded && !dailyBrief?.evening_completed_at &&
     (dayW.state === 'asleep' || (dayW.state === 'awake' && dayW.minutesLeft <= EVENING_WINDOW_MIN));
 
   const morningItems = schedule ? [
