@@ -693,7 +693,11 @@
       var jitterY = ((h >> 10) % 100) / 100; // 0..1
       var y = arcY(x) - 14 - jitterY * (H * 0.30);
       var recency = span > 0 ? (idea.timestamp - oldestTs) / span : 1;
-      var radius = idea.status === 'hatched' ? 5 : (5 + recency * 5.5);
+      // Repeats grow the dot on top of the recency size -- capped at 5
+      // extra "counts" worth of growth so a thought captured 30 times
+      // doesn't swallow the field, just reads as clearly the biggest one.
+      var repeatBoost = Math.min((idea.count || 1) - 1, 5) * 1.8;
+      var radius = idea.status === 'hatched' ? (5 + repeatBoost * 0.5) : (5 + recency * 5.5 + repeatBoost);
       var opacity = idea.status === 'hatched' ? 0.9 : (0.5 + recency * 0.5);
       var spawnAt = idea._spawnAt || 0;
       var rgb = hexToRgb(categoryColor(catName(idea)));
@@ -900,10 +904,49 @@
   });
   submitCapture.addEventListener('click', doCapture);
 
+  // Lowercase, collapsed whitespace, trailing punctuation stripped --
+  // catches "Call the bank." vs "call the bank" as the same repeat
+  // without needing anything fuzzier. Rephrased repeats ("worried about
+  // rent" vs "rent is stressing me out") won't match here -- that needs
+  // real semantic comparison, which means an LLM call, which means idea
+  // text leaving the device. That's a real conflict with this tool's
+  // local-only privacy requirement, so it's deliberately NOT wired in --
+  // if it's ever added, it has to be an explicit opt-in the user turns on
+  // knowing captures would then go over the network, never silent-by-default.
+  function normalizeText(text) {
+    return text.trim().toLowerCase().replace(/\s+/g, ' ').replace(/[.!?,;:]+$/, '');
+  }
+
+  // Repeats only ever bump an already-INCUBATING idea -- one that was
+  // deliberately let rest stays resting even if the same thought recurs;
+  // silently reviving it would undercut "let it rest" actually meaning
+  // something. A fresh recurrence of a rested thought just becomes its
+  // own new incubating entry, which correctly reflects "this came up again."
+  function findRepeat(text) {
+    var norm = normalizeText(text);
+    if (!norm) return null;
+    return incubating().find(function (i) { return normalizeText(i.text) === norm; }) || null;
+  }
+
   function doCapture() {
     var text = captureInput.value.trim();
     if (!text) return;
-    var idea = { id: uid(), text: text, timestamp: Date.now(), status: 'incubating', category: selectedCategory };
+
+    var repeat = findRepeat(text);
+    if (repeat) {
+      repeat.count = (repeat.count || 1) + 1;
+      repeat.timestamp = Date.now();
+      repeat._spawnAt = performance.now();
+      saveIdeas(stripTransient(ideas));
+      layout();
+      if (reduceMotion) draw(performance.now());
+      closeCapture();
+      flashConfirm("You've had this thought before ✓");
+      renderFooterLinks();
+      return;
+    }
+
+    var idea = { id: uid(), text: text, timestamp: Date.now(), status: 'incubating', category: selectedCategory, count: 1 };
     idea._spawnAt = performance.now();
     ideas.push(idea);
     saveIdeas(stripTransient(ideas));
@@ -922,9 +965,13 @@
     });
   }
 
-  function flashConfirm() {
+  function flashConfirm(message) {
+    confirmFlash.textContent = message || 'Safe. ✓';
     confirmFlash.classList.add('show');
-    setTimeout(function () { confirmFlash.classList.remove('show'); }, 1400);
+    setTimeout(function () {
+      confirmFlash.classList.remove('show');
+      confirmFlash.textContent = 'Safe. ✓';
+    }, 1400);
   }
 
   // ---------------------------------------------------------------------
@@ -957,7 +1004,8 @@
 
   function openView(idea) {
     viewText.textContent = idea.text;
-    viewMeta.textContent = 'Captured ' + relTime(idea.timestamp);
+    var count = idea.count || 1;
+    viewMeta.textContent = (count > 1 ? 'Thought ' + count + ' times · last ' : 'Captured ') + relTime(idea.timestamp);
     viewBadge.style.display = idea.status === 'hatched' ? 'inline-block' : 'none';
     setCatBadge(viewCatBadge, idea);
     viewBackdrop.classList.add('open');
@@ -991,16 +1039,13 @@
   });
 
   function showEmptyCheckinToast() {
-    confirmFlash.textContent = "Nothing to check on right now.";
-    flashConfirm();
-    setTimeout(function () { confirmFlash.textContent = 'Safe. ✓'; }, 1500);
+    flashConfirm('Nothing to check on right now.');
   }
 
-  function ageDays(ts) {
+  function ageDays(ts, count) {
     var d = Math.floor((Date.now() - ts) / 86400000);
-    if (d <= 0) return 'today';
-    if (d === 1) return '1 day incubating';
-    return d + ' days incubating';
+    var base = d <= 0 ? 'today' : d === 1 ? '1 day incubating' : d + ' days incubating';
+    return count > 1 ? 'Thought about ' + count + ' times · ' + base : base;
   }
 
   function renderCheckinStep() {
@@ -1036,7 +1081,7 @@
       '<div class="checkin-age"></div>' +
       '</div>';
     checkinBody.querySelector('.checkin-idea').textContent = idea.text;
-    checkinBody.querySelector('.checkin-age').textContent = ageDays(idea.timestamp);
+    checkinBody.querySelector('.checkin-age').textContent = ageDays(idea.timestamp, idea.count || 1);
     setCatBadge(checkinBody.querySelector('#checkinCatBadge'), idea);
 
     checkinActions.innerHTML = '';
