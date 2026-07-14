@@ -21,6 +21,15 @@ function fmtDuration(seconds) {
   return `${h}h ${m}m`;
 }
 
+// MorningBriefPrompt's pick-list puts an existing item's EXACT title into
+// planned_focus (a free-typed fallback is still possible, so this stays a
+// soft trim+casefold compare, not an id match) -- this is what makes "did I
+// actually do the one thing" answerable instead of just eyeballing two
+// separate blocks of text.
+function titlesMatch(a, b) {
+  return !!a && !!b && a.trim().toLowerCase() === b.trim().toLowerCase();
+}
+
 export default function EveningDebriefPrompt({ user, onDone }) {
   const [loading, setLoading] = useState(true);
   const [review, setReview] = useState(null);
@@ -36,6 +45,8 @@ export default function EveningDebriefPrompt({ user, onDone }) {
       .finally(() => { if (!cancelled) setLoading(false); });
     return () => { cancelled = true; };
   }, [user?.id]);
+
+  const plannedDone = !!review?.planned_focus && (review.completed || []).some(c => titlesMatch(c.title, review.planned_focus));
 
   async function submit() {
     if (saving) return;
@@ -61,16 +72,30 @@ export default function EveningDebriefPrompt({ user, onDone }) {
                 {review?.planned_focus && (
                   <View style={s.reviewBlock}>
                     <Text style={s.reviewLabel}>YOU PLANNED</Text>
-                    <Text style={s.reviewText}>{review.planned_focus}</Text>
+                    <View style={s.plannedRow}>
+                      <Text style={s.reviewText}>{review.planned_focus}</Text>
+                      <Text style={[s.plannedBadge, plannedDone ? s.plannedBadgeDone : s.plannedBadgePending]}>
+                        {plannedDone ? '✓ Done' : '○ Not yet'}
+                      </Text>
+                    </View>
                   </View>
                 )}
                 <View style={s.reviewBlock}>
                   <Text style={s.reviewLabel}>YOU DID</Text>
-                  {review?.completed?.length ? review.completed.map((c, i) => (
-                    <Text key={i} style={s.reviewItem}>
-                      · {c.title}{c.duration_seconds != null ? ` (${fmtDuration(c.duration_seconds)})` : ''}
-                    </Text>
-                  )) : (
+                  {review?.completed?.length ? review.completed.map((c, i) => {
+                    // The one item that matches this morning's stated focus,
+                    // not just an arbitrary line in the list -- the whole
+                    // point of picking an existing item instead of free
+                    // text (see MorningBriefPrompt) is being able to say
+                    // "yes, THAT got done" instead of eyeballing two
+                    // disconnected blocks of text against each other.
+                    const isPlanned = titlesMatch(c.title, review.planned_focus);
+                    return (
+                      <Text key={i} style={[s.reviewItem, isPlanned && s.reviewItemPlanned]}>
+                        {isPlanned ? '★ ' : '· '}{c.title}{c.duration_seconds != null ? ` (${fmtDuration(c.duration_seconds)})` : ''}
+                      </Text>
+                    );
+                  }) : (
                     <Text style={s.reviewEmpty}>Nothing checked off today.</Text>
                   )}
                 </View>
@@ -115,8 +140,13 @@ const s = StyleSheet.create({
   loadingSpinner: { marginVertical: 16 },
   reviewBlock: { marginBottom: 14 },
   reviewLabel: { fontSize: 10, fontWeight: '800', color: '#475569', letterSpacing: 0.6, marginBottom: 4 },
-  reviewText: { fontSize: 14, color: '#f1f5f9', fontWeight: '600', lineHeight: 20 },
+  reviewText: { fontSize: 14, color: '#f1f5f9', fontWeight: '600', lineHeight: 20, flex: 1, marginRight: 8 },
+  plannedRow: { flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between' },
+  plannedBadge: { fontSize: 11, fontWeight: '800' },
+  plannedBadgeDone: { color: '#34d399' },
+  plannedBadgePending: { color: '#64748b' },
   reviewItem: { fontSize: 13, color: '#94a3b8', lineHeight: 19 },
+  reviewItemPlanned: { color: '#c7d2fe', fontWeight: '700' },
   reviewEmpty: { fontSize: 13, color: '#475569', fontStyle: 'italic' },
   question: { fontSize: 15, fontWeight: '800', color: '#f1f5f9', marginTop: 6, marginBottom: 2 },
   questionHint: { fontSize: 11, color: '#64748b', marginBottom: 10 },
