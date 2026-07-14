@@ -132,12 +132,16 @@ export async function updateCommitment(commitment_id, updates) {
 }
 
 // ── Check-ins ──────────────────────────────────────────────────────────────
-export async function postCheckin(commitment_id, result, energy, intervention_id) {
+// extraContext (optional): merged into context alongside the usual
+// intervention_id/source -- currently just duration_seconds, from Today's
+// Start/Finish timing (see handleFinish), read back out by
+// GET /v2/daily-briefs/review for the Evening Debrief's planned-vs-actual list.
+export async function postCheckin(commitment_id, result, energy, intervention_id, extraContext) {
   return request('POST', '/checkins', {
     commitment_id,
     result,
     energy,
-    context: { intervention_id, source: 'now_app' },
+    context: { intervention_id, source: 'now_app', ...(extraContext || {}) },
   });
 }
 
@@ -168,6 +172,47 @@ export async function skipProjectStep(commitment_id) {
 // work), otherwise queues behind whatever's already running.
 export async function addProjectStep(project_id, title) {
   return request('POST', `/commitments/${project_id}/steps`, { title });
+}
+
+// ── Parking Lot ──────────────────────────────────────────────────────────
+// A new idea captured WITHOUT becoming a real commitment -- see migration
+// 028's header comment for why this exists as its own thing rather than
+// just routing straight into AddPainPointScreen.
+export async function getParkingLot(user_id, status) {
+  const params = new URLSearchParams({ user_id, ...(status ? { status } : {}) });
+  return request('GET', `/parking-lot?${params}`, undefined, 'v2');
+}
+
+export async function addParkingLotItem(user_id, title) {
+  return request('POST', '/parking-lot', { user_id, title }, 'v2');
+}
+
+// status: 'dismissed' (not doing it) or 'converted' (client then opens
+// AddPainPointScreen with the title prefilled -- see ProjectsScreen).
+export async function resolveParkingLotItem(id, status) {
+  return request('PATCH', `/parking-lot/${id}`, { status }, 'v2');
+}
+
+// ── Morning Brief / Evening Debrief ───────────────────────────────────────
+export async function getDailyBriefToday(user_id) {
+  const params = new URLSearchParams({ user_id });
+  return request('GET', `/daily-briefs/today?${params}`, undefined, 'v2');
+}
+
+// planned_focus (this morning's answer) + completed (today's done checkins,
+// with duration_seconds where a Start/Finish pair recorded one) -- the
+// planned-vs-actual data Evening Debrief displays.
+export async function getEveningReview(user_id) {
+  const params = new URLSearchParams({ user_id });
+  return request('GET', `/daily-briefs/review?${params}`, undefined, 'v2');
+}
+
+export async function postMorningBrief(user_id, planned_focus) {
+  return request('POST', '/daily-briefs/morning', { user_id, planned_focus }, 'v2');
+}
+
+export async function postEveningDebrief(user_id, shipped_something, shipped_note) {
+  return request('POST', '/daily-briefs/evening', { user_id, shipped_something, shipped_note }, 'v2');
 }
 
 // Engine v8 domain system — check in against an outcome_equivalent instead of

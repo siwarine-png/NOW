@@ -29,6 +29,8 @@ const v2 = express.Router();
 v2.use(auth);
 v2.use('/identity-checkins', require('./routes/identityCheckins'));
 v2.use('/focus-sessions', require('./routes/focusSessions'));
+v2.use('/parking-lot', require('./routes/parkingLot'));
+v2.use('/daily-briefs', require('./routes/dailyBriefs'));
 app.use('/v2', v2);
 
 // Admin/back-office — gated by ADMIN_SECRET inside admin.js, entirely

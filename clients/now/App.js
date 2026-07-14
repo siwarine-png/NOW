@@ -23,6 +23,7 @@ import IdentityScreen from './src/screens/IdentityScreen';
 import ProjectsScreen from './src/screens/ProjectsScreen';
 import WeekScreen from './src/screens/WeekScreen';
 import BottomNav from './src/components/BottomNav';
+import { resolveParkingLotItem } from './src/api/engine';
 
 Notifications.setNotificationHandler({
   handleNotification: async () => ({ shouldShowAlert: true, shouldPlaySound: false, shouldSetBadge: false }),
@@ -59,6 +60,10 @@ const PROJECTS_TAB_SCREENS = ['projects', 'projects-new'];
 function App() {
   const [screen, setScreen] = useState('loading');
   const [user, setUser] = useState(null);
+  // Set when Projects' Parking Lot "Convert" opens AddPainPointScreen --
+  // only resolved as 'converted' once creation actually succeeds (see
+  // onCreated below), so backing out of the wizard leaves the idea parked.
+  const [convertingIdea, setConvertingIdea] = useState(null);
 
   useEffect(() => {
     (async () => {
@@ -101,9 +106,27 @@ function App() {
     content = <StuckScreen user={user} onAddNew={() => setScreen('stuck-new')} />;
   } else if (screen === 'stuck-new' || screen === 'projects-new') {
     const backTo = screen === 'projects-new' ? 'projects' : 'today';
-    content = <AddPainPointScreen user={user} onCreated={() => setScreen(backTo)} />;
+    content = (
+      <AddPainPointScreen
+        user={user}
+        initialTitle={convertingIdea?.title}
+        onCreated={async () => {
+          if (convertingIdea) {
+            try { await resolveParkingLotItem(convertingIdea.id, 'converted'); } catch (e) { /* best-effort */ }
+            setConvertingIdea(null);
+          }
+          setScreen(backTo);
+        }}
+      />
+    );
   } else if (screen === 'projects') {
-    content = <ProjectsScreen user={user} onAddNew={() => setScreen('projects-new')} />;
+    content = (
+      <ProjectsScreen
+        user={user}
+        onAddNew={() => setScreen('projects-new')}
+        onConvertIdea={item => { setConvertingIdea(item); setScreen('projects-new'); }}
+      />
+    );
   } else if (screen === 'week') {
     content = <WeekScreen user={user} />;
   } else if (screen === 'identity') {

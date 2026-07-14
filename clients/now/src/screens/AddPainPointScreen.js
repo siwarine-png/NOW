@@ -217,10 +217,12 @@ function parseProjectFile(text) {
 // comment) to offer an explicit way out at exactly the point where someone
 // either has nothing more to add, or nothing to begin with. Normal usage
 // from the New tab doesn't pass these and renders exactly as before.
-export default function AddPainPointScreen({ user, onCreated, secondaryActionLabel, onSecondaryAction }) {
+export default function AddPainPointScreen({ user, onCreated, secondaryActionLabel, onSecondaryAction, initialTitle }) {
   const [step, setStep] = useState(STEP_CHECKING);
   const [staleProjects, setStaleProjects] = useState([]);
-  const [customTitle, setCustomTitle] = useState('');
+  // initialTitle -- Parking Lot's "Convert" (ProjectsScreen), prefilling the
+  // idea's own wording instead of asking it to be retyped from scratch.
+  const [customTitle, setCustomTitle] = useState(initialTitle || '');
   const [identityAxis, setIdentityAxis] = useState(null);
   const [cadence, setCadence] = useState('daily');
   const [time, setTime] = useState(defaultTime());

@@ -14,7 +14,7 @@
  */
 import React, { useState, useEffect, useCallback } from 'react';
 import { View, Text, TextInput, TouchableOpacity, StyleSheet, ActivityIndicator, ScrollView } from 'react-native';
-import { getCommitments, updateCommitment, addProjectStep } from '../api/engine';
+import { getCommitments, updateCommitment, addProjectStep, getParkingLot, addParkingLotItem, resolveParkingLotItem } from '../api/engine';
 import { showAlert } from '../utils/alert';
 
 function axisLabel(axis) {
@@ -107,16 +107,20 @@ export function groupCommitments(all) {
   return { projectRows, eventRows, quickRows };
 }
 
-export default function ProjectsScreen({ user, onAddNew }) {
+export default function ProjectsScreen({ user, onAddNew, onConvertIdea }) {
   const [loading, setLoading] = useState(true);
   const [projects, setProjects] = useState([]);
   const [events, setEvents] = useState([]);
   const [quickTasks, setQuickTasks] = useState([]);
+  const [parkingLot, setParkingLot] = useState([]);
   const [selected, setSelected] = useState(new Set());
   const [deleting, setDeleting] = useState(false);
   const [addingStepFor, setAddingStepFor] = useState(null);
   const [stepInput, setStepInput] = useState('');
   const [addingStep, setAddingStep] = useState(false);
+  const [ideaInput, setIdeaInput] = useState('');
+  const [parkingIdea, setParkingIdea] = useState(false);
+  const [resolvingIdeaId, setResolvingIdeaId] = useState(null);
 
   const load = useCallback(async () => {
     if (!user?.id) return;
@@ -124,15 +128,17 @@ export default function ProjectsScreen({ user, onAddNew }) {
     try {
       // active + paused covers everything still "in flight" -- completed/
       // abandoned commitments aren't part of the picture this screen answers.
-      const [active, paused] = await Promise.all([
+      const [active, paused, parked] = await Promise.all([
         getCommitments(user.id, 'active'),
         getCommitments(user.id, 'paused'),
+        getParkingLot(user.id).catch(() => []),
       ]);
       const all = [...(active || []), ...(paused || [])];
       const { projectRows, eventRows, quickRows } = groupCommitments(all);
       setProjects(projectRows);
       setEvents(eventRows);
       setQuickTasks(quickRows);
+      setParkingLot(parked || []);
     } catch { /* keep whatever was last shown rather than a broken empty screen */ }
     finally { setLoading(false); }
   }, [user]);
@@ -180,6 +186,42 @@ export default function ProjectsScreen({ user, onAddNew }) {
     } finally {
       setAddingStep(false);
     }
+  }
+
+  // Fastest possible capture -- no kind/axis/schedule questions, unlike
+  // "+ Something new." That friction is exactly what Parking Lot exists to
+  // route around (see migration 028's header comment): jot it down, decide
+  // later whether it's worth becoming a real commitment.
+  async function submitIdea() {
+    const title = ideaInput.trim();
+    if (!title || !user?.id) return;
+    setParkingIdea(true);
+    try {
+      await addParkingLotItem(user.id, title);
+      setIdeaInput('');
+      await load();
+    } catch (e) {
+      showAlert("Couldn't park that", e.message);
+    } finally {
+      setParkingIdea(false);
+    }
+  }
+
+  async function dismissIdea(id) {
+    setResolvingIdeaId(id);
+    try {
+      await resolveParkingLotItem(id, 'dismissed');
+      setParkingLot(rows => rows.filter(r => r.id !== id));
+    } catch (e) { /* best-effort -- worst case it reappears until retried */ }
+    setResolvingIdeaId(null);
+  }
+
+  // Marking it 'converted' happens once AddPainPointScreen actually creates
+  // something (App.js wires this through onCreated), not the moment this is
+  // tapped -- backing out of that wizard should leave the idea still parked,
+  // not silently lose it.
+  function convertIdea(item) {
+    onConvertIdea?.(item);
   }
 
   // Same abandon-not-delete semantics as every other Remove in this app --
@@ -340,6 +382,37 @@ export default function ProjectsScreen({ user, onAddNew }) {
             ))}
           </View>
         )}
+
+        <View style={s.section}>
+          <Text style={s.sectionLabel}>PARKING LOT</Text>
+          <Text style={s.parkingHint}>New idea? Jot it here instead of chasing it right now.</Text>
+          <View style={s.ideaRow}>
+            <TextInput
+              style={s.ideaInput} value={ideaInput} onChangeText={setIdeaInput}
+              placeholder="e.g. Voice-first capture" placeholderTextColor="#475569"
+              onSubmitEditing={submitIdea} returnKeyType="done"
+            />
+            <TouchableOpacity
+              style={[s.ideaBtn, (parkingIdea || !ideaInput.trim()) && s.btnDisabled]}
+              disabled={parkingIdea || !ideaInput.trim()} onPress={submitIdea}
+            >
+              {parkingIdea ? <ActivityIndicator size="small" color="#fff" /> : <Text style={s.ideaBtnText}>Park it</Text>}
+            </TouchableOpacity>
+          </View>
+          {parkingLot.map(item => (
+            <View key={item.id} style={s.ideaCard}>
+              <Text style={s.ideaTitle}>{item.title}</Text>
+              <View style={s.ideaActions}>
+                <TouchableOpacity disabled={resolvingIdeaId === item.id} onPress={() => convertIdea(item)}>
+                  <Text style={s.convertText}>Convert</Text>
+                </TouchableOpacity>
+                <TouchableOpacity disabled={resolvingIdeaId === item.id} onPress={() => dismissIdea(item.id)}>
+                  <Text style={s.dismissIdeaText}>Dismiss</Text>
+                </TouchableOpacity>
+              </View>
+            </View>
+          ))}
+        </View>
       </ScrollView>
 
       {selected.size > 0 && (
@@ -393,6 +466,16 @@ const s = StyleSheet.create({
   addStepBtnText: { color: '#fff', fontSize: 13, fontWeight: '800' },
   addStepCancel: { paddingVertical: 8, paddingHorizontal: 6 },
   addStepCancelText: { color: '#64748b', fontSize: 13, fontWeight: '700' },
+  parkingHint: { fontSize: 12, color: '#64748b', marginBottom: 10, lineHeight: 17 },
+  ideaRow: { flexDirection: 'row', gap: 8, marginBottom: 10 },
+  ideaInput: { flex: 1, backgroundColor: '#1e293b', borderRadius: 10, borderWidth: 1, borderColor: '#334155', paddingVertical: 10, paddingHorizontal: 12, color: '#f1f5f9', fontSize: 14 },
+  ideaBtn: { backgroundColor: '#6366f1', borderRadius: 10, paddingVertical: 10, paddingHorizontal: 16, justifyContent: 'center' },
+  ideaBtnText: { color: '#fff', fontSize: 13, fontWeight: '800' },
+  ideaCard: { backgroundColor: '#1e293b', borderRadius: 12, borderWidth: 1, borderColor: '#273449', borderStyle: 'dashed', padding: 12, marginBottom: 8, flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between' },
+  ideaTitle: { fontSize: 14, color: '#f1f5f9', fontWeight: '600', flex: 1, marginRight: 10 },
+  ideaActions: { flexDirection: 'row', gap: 14 },
+  convertText: { color: '#818cf8', fontSize: 12, fontWeight: '700' },
+  dismissIdeaText: { color: '#475569', fontSize: 12, fontWeight: '700' },
   deleteBtn: { backgroundColor: '#7f1d1d', borderRadius: 14, paddingVertical: 14, alignItems: 'center', marginHorizontal: 20, marginBottom: 10, borderWidth: 1, borderColor: '#dc2626' },
   deleteBtnText: { color: '#fecaca', fontSize: 15, fontWeight: '800' },
   btnDisabled: { opacity: 0.5 },

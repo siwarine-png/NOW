@@ -12,11 +12,13 @@
  */
 import React, { useState, useEffect, useCallback } from 'react';
 import { View, Text, TouchableOpacity, StyleSheet, ActivityIndicator, ScrollView, AppState } from 'react-native';
-import { getInterventionNow, getTodaySchedule, postCheckin, getIdentityCheckinStatus, updateCommitment, getStalledProjects } from '../api/engine';
+import { getInterventionNow, getTodaySchedule, postCheckin, getIdentityCheckinStatus, updateCommitment, getStalledProjects, getDailyBriefToday } from '../api/engine';
 import { enqueue } from '../store/queue';
 import IdentityCheckinPrompt, { shouldShowIdentityCheckin } from '../components/IdentityCheckinPrompt';
 import StaleProjectPrompt from '../components/StaleProjectPrompt';
 import RingProgress from '../components/RingProgress';
+import MorningBriefPrompt from '../components/MorningBriefPrompt';
+import EveningDebriefPrompt from '../components/EveningDebriefPrompt';
 
 function greeting() {
   const h = new Date().getHours();
@@ -175,7 +177,16 @@ function MorningRoutineCard({ items, onDone, acting }) {
   );
 }
 
-function Row({ item, onDone, onRemove, acting }) {
+// Elapsed since Start was pressed -- reuses TodayScreen's own 30s re-render
+// tick (see the countdown rings above) rather than running a second timer,
+// so this just naturally stays live along with everything else.
+function fmtElapsed(activeSinceIso) {
+  const min = Math.max(0, Math.round((Date.now() - new Date(activeSinceIso).getTime()) / 60000));
+  return fmtDuration(min);
+}
+
+function Row({ item, onDone, onStart, onFinish, onRemove, acting }) {
+  const isTiming = !!item.active_since && !item.done;
   return (
     <View style={s.row}>
       <View style={s.rowBar} />
@@ -185,14 +196,23 @@ function Row({ item, onDone, onRemove, acting }) {
           {item.window_start ? `${fmtTime(item.window_start)}–${fmtTime(item.window_end)}` : 'Anytime'}
           {item.minutes_until != null ? ` · ${fmtMinutesUntil(item.minutes_until)}` : ''}
           {item.identity_axis ? ` · ${axisLabel(item.identity_axis)}` : ''}
+          {isTiming ? ` · ⏱ ${fmtElapsed(item.active_since)}` : ''}
         </Text>
       </View>
       {item.done ? (
         <Text style={s.doneBadge}>✓ Done</Text>
       ) : (
         <View style={s.rowActions}>
-          <TouchableOpacity style={s.doneBtn} disabled={acting} onPress={() => onDone(item.commitment_id)}>
-            <Text style={s.doneBtnText}>✓ Done</Text>
+          {!isTiming && (
+            <TouchableOpacity style={s.startBtn} disabled={acting} onPress={() => onStart(item.commitment_id)}>
+              <Text style={s.startBtnText}>▶ Start</Text>
+            </TouchableOpacity>
+          )}
+          <TouchableOpacity
+            style={s.doneBtn} disabled={acting}
+            onPress={() => (isTiming ? onFinish(item) : onDone(item.commitment_id))}
+          >
+            <Text style={s.doneBtnText}>{isTiming ? '✓ Finish' : '✓ Done'}</Text>
           </TouchableOpacity>
           <TouchableOpacity disabled={acting} onPress={() => onRemove(item.commitment_id)}>
             <Text style={s.removeBtnText}>Remove</Text>
@@ -203,12 +223,14 @@ function Row({ item, onDone, onRemove, acting }) {
   );
 }
 
-function Section({ label, items, onDone, onRemove, acting }) {
+function Section({ label, items, onDone, onStart, onFinish, onRemove, acting }) {
   if (!items?.length) return null;
   return (
     <View style={s.section}>
       <Text style={s.sectionLabel}>{label}</Text>
-      {items.map(item => <Row key={item.commitment_id} item={item} onDone={onDone} onRemove={onRemove} acting={acting} />)}
+      {items.map(item => (
+        <Row key={item.commitment_id} item={item} onDone={onDone} onStart={onStart} onFinish={onFinish} onRemove={onRemove} acting={acting} />
+      ))}
     </View>
   );
 }
@@ -220,6 +242,7 @@ export default function TodayScreen({ user, onOpenNow, onSettings }) {
   const [acting, setActing] = useState(false);
   const [checkinDue, setCheckinDue] = useState(false);
   const [staleProject, setStaleProject] = useState(null);
+  const [dailyBrief, setDailyBrief] = useState(null);
   // Forces a re-render every 30s purely so the two countdown pills tick
   // down on their own -- schedule itself only reloads on AppState changes,
   // which would otherwise leave "in 10m" frozen at whatever it read on load.
@@ -253,6 +276,15 @@ export default function TodayScreen({ user, onOpenNow, onSettings }) {
       const { stalled } = await getStalledProjects(user.id, true);
       setStaleProject(stalled?.[0] || null);
     } catch { /* best-effort -- worst case it just asks again next open */ }
+
+    // Morning Brief / Evening Debrief gating (see dayW below) -- both are
+    // "once per calendar day," tracked server-side via daily_briefs'
+    // morning_completed_at/evening_completed_at rather than a local flag,
+    // so completing one on the phone doesn't leave it still pending on web.
+    try {
+      const { brief } = await getDailyBriefToday(user.id);
+      setDailyBrief(brief);
+    } catch { /* best-effort -- worst case a prompt shows again next open */ }
   }, [user]);
 
   useEffect(() => { load(); }, [load]);
@@ -271,6 +303,40 @@ export default function TodayScreen({ user, onOpenNow, onSettings }) {
       await postCheckin(commitmentId, 'done', null, null);
     } catch {
       await enqueue({ type: 'checkin', commitment_id: commitmentId, result: 'done', energy: null, intervention_id: null });
+    }
+    setActing(false);
+    load();
+  }
+
+  // "Start" just timestamps active_since -- no separate confirmation, no
+  // new status. It's purely a marker Finish reads back to compute a real
+  // elapsed duration, not a state machine of its own.
+  async function handleStart(commitmentId) {
+    setActing(true);
+    try {
+      await updateCommitment(commitmentId, { active_since: new Date().toISOString() });
+    } catch { /* best-effort -- worst case Start silently doesn't take */ }
+    setActing(false);
+    load();
+  }
+
+  // Same as handleDone, but for a row that was actually timed -- computes
+  // the real elapsed duration and clears active_since so it doesn't persist
+  // into a future occurrence of a recurring (cadence='daily') commitment,
+  // which stays 'active' after a checkin rather than retiring like a
+  // one-time task does.
+  async function handleFinish(item) {
+    setActing(true);
+    const durationSeconds = item.active_since
+      ? Math.round((Date.now() - new Date(item.active_since).getTime()) / 1000)
+      : null;
+    try {
+      await postCheckin(item.commitment_id, 'done', null, null, durationSeconds != null ? { duration_seconds: durationSeconds } : undefined);
+    } catch {
+      await enqueue({ type: 'checkin', commitment_id: item.commitment_id, result: 'done', energy: null, intervention_id: null });
+    }
+    if (item.active_since) {
+      try { await updateCommitment(item.commitment_id, { active_since: null }); } catch { /* best-effort */ }
     }
     setActing(false);
     load();
@@ -316,6 +382,16 @@ export default function TodayScreen({ user, onOpenNow, onSettings }) {
   const nextRemaining = nextScheduled ? clamp01(nextScheduled.minutes_until / NEXT_HORIZON_MIN) : 1;
   const dayW = dayWindow(user);
   const dayRemaining = dayW.state === 'before_wake' ? 1 : clamp01(dayW.minutesLeft / dayW.span);
+
+  // Morning Brief only makes sense once the day has actually started --
+  // 'before_wake' would just be interrupting sleep. Evening Debrief fires
+  // once you're inside the last 2 hours of your waking window (or already
+  // past it, in case the app's opened late) -- same "close enough to matter"
+  // spirit as NEXT's own 60min horizon above.
+  const EVENING_WINDOW_MIN = 120;
+  const morningBriefDue = dayW.state === 'awake' && !dailyBrief?.morning_completed_at;
+  const eveningDebriefDue = !dailyBrief?.evening_completed_at &&
+    (dayW.state === 'asleep' || (dayW.state === 'awake' && dayW.minutesLeft <= EVENING_WINDOW_MIN));
 
   const morningItems = schedule ? [
     ...(schedule.sections.earlier_today || []),
@@ -394,10 +470,10 @@ export default function TodayScreen({ user, onOpenNow, onSettings }) {
 
         {schedule && (
           <>
-            <Section label="Earlier today" items={schedule.sections.earlier_today} onDone={handleDone} onRemove={handleRemove} acting={acting} />
-            <Section label="Happening now" items={schedule.sections.happening_now} onDone={handleDone} onRemove={handleRemove} acting={acting} />
-            <Section label="Coming up" items={schedule.sections.coming_up} onDone={handleDone} onRemove={handleRemove} acting={acting} />
-            <Section label="Anytime" items={schedule.sections.anytime} onDone={handleDone} onRemove={handleRemove} acting={acting} />
+            <Section label="Earlier today" items={schedule.sections.earlier_today} onDone={handleDone} onStart={handleStart} onFinish={handleFinish} onRemove={handleRemove} acting={acting} />
+            <Section label="Happening now" items={schedule.sections.happening_now} onDone={handleDone} onStart={handleStart} onFinish={handleFinish} onRemove={handleRemove} acting={acting} />
+            <Section label="Coming up" items={schedule.sections.coming_up} onDone={handleDone} onStart={handleStart} onFinish={handleFinish} onRemove={handleRemove} acting={acting} />
+            <Section label="Anytime" items={schedule.sections.anytime} onDone={handleDone} onStart={handleStart} onFinish={handleFinish} onRemove={handleRemove} acting={acting} />
             {schedule.sections.snoozed?.length > 0 && (
               <View style={s.section}>
                 <Text style={s.sectionLabel}>Snoozed</Text>
@@ -418,6 +494,21 @@ export default function TodayScreen({ user, onOpenNow, onSettings }) {
 
       {!checkinDue && staleProject && (
         <StaleProjectPrompt project={staleProject} onResolved={() => setStaleProject(null)} />
+      )}
+
+      {!checkinDue && !staleProject && morningBriefDue && (
+        <MorningBriefPrompt
+          user={user}
+          suggestedFocus={doNow?.action || doNow?.message || ''}
+          onDone={() => setDailyBrief(b => ({ ...(b || {}), morning_completed_at: new Date().toISOString() }))}
+        />
+      )}
+
+      {!checkinDue && !staleProject && !morningBriefDue && eveningDebriefDue && (
+        <EveningDebriefPrompt
+          user={user}
+          onDone={() => setDailyBrief(b => ({ ...(b || {}), evening_completed_at: new Date().toISOString() }))}
+        />
       )}
     </View>
   );
@@ -456,6 +547,8 @@ const s = StyleSheet.create({
   rowTime: { fontSize: 12, color: '#64748b', marginTop: 2 },
   rowTimeDone: { color: '#475569' },
   rowActions: { alignItems: 'flex-end', gap: 6 },
+  startBtn: { borderWidth: 1, borderColor: '#6366f1', borderRadius: 10, paddingVertical: 6, paddingHorizontal: 12 },
+  startBtnText: { color: '#818cf8', fontSize: 12, fontWeight: '700' },
   doneBtn: { borderWidth: 1, borderColor: '#334155', borderRadius: 10, paddingVertical: 6, paddingHorizontal: 12 },
   doneBtnText: { color: '#94a3b8', fontSize: 12, fontWeight: '700' },
   doneBadge: { color: '#34d399', fontSize: 12, fontWeight: '700' },

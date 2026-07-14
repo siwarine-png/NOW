@@ -193,7 +193,7 @@ router.get('/today', async (req, res) => {
     const row = {
       commitment_id: c.id, title: c.title, window_start: c.window_start, window_end: c.window_end,
       priority_tier: c.priority_tier, done: stats.checkedInToday, identity_axis: c.identity_axis,
-      due_date: c.due_date,
+      due_date: c.due_date, active_since: c.active_since,
     };
 
     // Snoozed was previously silently mixed into the other sections below --
@@ -243,7 +243,7 @@ router.get('/', async (req, res) => {
 // locks in whatever scope currently exists as done -- the API enforces the
 // ship, it doesn't just suggest it.
 router.patch('/:id', async (req, res) => {
-  const allowed = ['status', 'next_action', 'window_start', 'window_end', 'title', 'why', 'identity_tag', 'cadence', 'deadline', 'due_date', 'priority_tier', 'project_priority', 'snoozed_until'];
+  const allowed = ['status', 'next_action', 'window_start', 'window_end', 'title', 'why', 'identity_tag', 'cadence', 'deadline', 'due_date', 'priority_tier', 'project_priority', 'snoozed_until', 'active_since'];
   const { force_ship } = req.body;
   const updates = {};
   allowed.forEach(k => { if (req.body[k] !== undefined) updates[k] = req.body[k]; });
